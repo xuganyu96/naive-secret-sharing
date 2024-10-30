@@ -1,28 +1,14 @@
-# Secret Sharing
-Say I have a secret key (think master password, SSH secret key, signing key, decryption key), and I want to prevent it from getting lost if I lose my device or forget my master password. One way to recover is by sharing it with other people, but sharing my master password with other people directly is too risky.
+# Shamir's secret sharing
+Shamir's secret sharing is actually quite simple. Its security is based on the fact that any degree-$t-1$ polynomial can be uniquely determined by its evaluations at $t$ points using the Lagrange Interpolation. The procedure is as follows:
 
-What are my security assumptions:
-- My friends will not collude
-- My friends may be forgetful
-- My friends may unintentionally leak my secret
+- Determine some base field $K$ to operate on. This field needs to be cryptographically large, such as $\mathbb{F}_{2^{128}}$
+- Determine the number of shares $n$ and the threshold $t$. This means that we will distribute shares of the secret to $n$ parties, among which any $t$ of them can be used to recover the secret
+- The secret is a degree-$t - 1$ polynomial $f \in K[x]$, which we will define using its canonical form, which contains $t$ field elements
+- Choose $n$ distinct field elements $s_1, s_2, \ldots, s_n \in K$ and evaluate the secret polynomial at those n points $r_i = f(s_i)$. Distribute $(s_i, r_i)$ to each of the $n$ trustees
+- Any $m$ of trustees can pool their points and uniquely determine the secret polynomial $f$ using Lagrange Interpolation
 
-A naive secret sharing scheme would be as follows:
-- Generate a random 256-bit key $k$ (AES-256-GCM or ChaCha20-Poly1305) and encrypt my secret using this key (we call it the master key). Publish the ciphertext
-- I want to distribute my key to n trustees such that any t of them can assemble the master key. This means I need to break up the key $n \choose t$ times.
-- For each of the $n \choose t$ possible parties of $t$ trustees:
-    - Generate $t - 1$ random masks $s_1, s_2, \ldots, s_{t-1}$
-    - The last mask is $s_t = k \oplus s_1 \oplus s_2 \oplus \ldots \oplus s_{t-1}$
-- Each trustee should receive $n-1 \choose t-1$ masks.
-
-This naive secret sharing can be made even more general. It doesn't have to be symmetric key; it can just be some secret seeds. 
-
-## Usage
-The main function of secret sharing is to generate a user-specified number of bits of entropy, then split it across the user-specified number of trustees at the user-specified number of threshold.
-
-```bash
-# Generate n files in the specified folder named "1.share", "2.share", etc.
-secretshare generate -n <trustees> -t <threshold> -b <entropybytes> -o <folder>
-
-# Given files, attempt to recover the secret
-secretshare assemble [file1] [file2] ...
-```
+Let field size be $k = \log_2 \vert K \vert$, denote the number of shares by $n$ and the threshold by $t$, then:
+- The secret polynomial needs $tk$ bits
+- Each share is $2k$ bits
+- Evaluating a single points requires $t$ field multiplication, so generating all shares requires $nt$ field multiplications
+- Lagrange interpolation takes how many field multiplication?
