@@ -233,6 +233,32 @@ impl<const L: usize> ExtField2<L> {
         return shifted;
     }
 
+    /// Euclidean long division, will panic if rhs is zero
+    pub fn euclidean_div(&self, rhs: &Self) -> (Self, Self) {
+        if rhs.is_zero() {
+            panic!("attempt to divide by zero");
+        }
+        let mut quot = Self::ZERO;
+        let mut rem = self.clone();
+
+        while rem.degree() >= rhs.degree() {
+            // Both rem and rhs are guaranteed to be NonNegative
+            let rem_degree: usize = match rem.degree() {
+                Degree::NonNegative(degree) => degree,
+                _ => panic!("Remainder is unexpectedly zero"),
+            };
+            let rhs_degree: usize = match rhs.degree() {
+                Degree::NonNegative(degree) => degree,
+                _ => panic!("Divisor is unexpectedly zero"),
+            };
+            let degree_diff = rem_degree - rhs_degree;
+            quot = quot.gf_add(&Self::ONE.shl(degree_diff));
+            rem = rem.gf_sub(&rhs.shl(degree_diff));
+        }
+
+        return (quot, rem);
+    }
+
     /// modulus multiplication
     #[allow(unused_variables)]
     pub fn gf_modmul(&self, other: &Self, modulus: &Self) -> Self {
@@ -374,6 +400,66 @@ mod tests {
             GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
                 .shr(16),
             GF_2_128::from_limbs([0x0000, 0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971,]),
+        );
+    }
+
+    #[test]
+    fn test_euclidean_div() {
+        assert_eq!(
+            GF_2_128::ZERO.euclidean_div(&GF_2_128::ONE),
+            (GF_2_128::ZERO, GF_2_128::ZERO)
+        );
+        assert_eq!(
+            GF_2_128::ONE.euclidean_div(&GF_2_128::ONE),
+            (GF_2_128::ONE, GF_2_128::ZERO)
+        );
+        assert_eq!(
+            GF_2_128::ZERO.not().euclidean_div(&GF_2_128::ONE),
+            (GF_2_128::ZERO.not(), GF_2_128::ZERO)
+        );
+
+        // Random test cases
+        assert_eq!(
+            GF_2_128::from_limbs([0x6F88, 0x6586, 0x5701, 0x2619, 0x964B, 0x2BCD, 0x0A5E, 0xAD0C])
+                .euclidean_div(&GF_2_128::from_limbs([
+                    0x1A02, 0x3B04, 0xCBB4, 0x3729, 0x5B9B, 0x4756, 0x35A0, 0x530B
+                ])),
+            (
+                GF_2_128::from_limbs([
+                    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0004
+                ]),
+                GF_2_128::from_limbs([
+                    0x0780, 0x8995, 0x79D1, 0xFABC, 0xF826, 0x3695, 0xDCDF, 0xE120
+                ])
+            )
+        );
+        assert_eq!(
+            GF_2_128::from_limbs([0x7AB3, 0xC7AC, 0x5F7B, 0xC3DC, 0x29AD, 0x137D, 0xAAD0, 0x7920])
+                .euclidean_div(&GF_2_128::from_limbs([
+                    0x4374, 0xFB75, 0x7A4D, 0x1BBC, 0xD872, 0xF253, 0x9CE8, 0x3F10
+                ])),
+            (
+                GF_2_128::from_limbs([
+                    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001
+                ]),
+                GF_2_128::from_limbs([
+                    0x39C7, 0x3CD9, 0x2536, 0xD860, 0xF1DF, 0xE12E, 0x3638, 0x4630
+                ])
+            )
+        );
+        assert_eq!(
+            GF_2_128::from_limbs([0x3C84, 0xBCBF, 0xFAB8, 0xAC77, 0xDBC8, 0xA478, 0x1D91, 0xBC64])
+                .euclidean_div(&GF_2_128::from_limbs([
+                    0x0000, 0x0000, 0x0000, 0x0000, 0xF943, 0xE449, 0xAF54, 0xEA20
+                ])),
+            (
+                GF_2_128::from_limbs([
+                    0x0000, 0x0000, 0x0000, 0x0000, 0x474D, 0x1926, 0x9A35, 0x429A
+                ]),
+                GF_2_128::from_limbs([
+                    0x0000, 0x0000, 0x0000, 0x0000, 0x4C23, 0xF643, 0x1158, 0xCB24
+                ])
+            )
         );
     }
 }
