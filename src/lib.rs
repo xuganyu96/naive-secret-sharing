@@ -130,7 +130,6 @@ impl<const L: usize> ExtField2<L> {
     }
 
     /// Addition in GF(2^m) is a simple XOR and will never overflow
-    #[allow(unused_variables)]
     pub fn gf_add(&self, other: &Self) -> Self {
         let mut limbs = [0; L];
 
@@ -171,21 +170,72 @@ impl<const L: usize> ExtField2<L> {
     }
 
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
-    /// If the shift amount is greater than there are bits in the
-    #[allow(unused_variables)]
-    pub fn overflowing_shl(&self, rhs: usize) -> (Self, bool) {
-        // TODO: implement this first since modmul will likely need to shift the modulus
-        todo!();
+    /// If the shift will cause overflow, this method will panic. This is consistent with integer
+    /// arithmetics
+    pub fn shl(&self, rhs: usize) -> Self {
+        let mut shifted = Self::ZERO;
+
+        if rhs >= Self::BITS {
+            panic!("attempt to shift left with overflow");
+        }
+
+        let limb_offset = rhs / (Word::BITS as usize);
+        let limb_fraction = rhs % (Word::BITS as usize);
+        self.limbs.iter().enumerate().for_each(|(i, limb)| {
+            if limb_offset <= i {
+                let near_loc = i - limb_offset;
+                let near_limb = limb << limb_fraction;
+                shifted.limbs[near_loc] ^= near_limb;
+            }
+            if limb_offset + 1 <= i {
+                let far_loc = i - limb_offset - 1;
+                let far_limb = if limb_fraction == 0 {
+                    0
+                } else {
+                    limb >> (Word::BITS as usize - limb_fraction)
+                };
+                shifted.limbs[far_loc] ^= far_limb;
+            }
+        });
+
+        shifted
+    }
+
+    /// Attempt to shift right by the specified number of bits
+    /// e.g. 0xFFFF.overflowing_shr(4) = 0x0FFF
+    /// Attempt to shift with overflow will cause panic
+    pub fn shr(&self, rhs: usize) -> Self {
+        let mut shifted = Self::ZERO;
+
+        if rhs >= Self::BITS {
+            panic!("attempt to shift right with overflow");
+        }
+
+        let limb_offset = rhs / Word::BITS as usize;
+        let limb_fraction = rhs % Word::BITS as usize;
+        self.limbs.iter().enumerate().for_each(|(i, limb)| {
+            if (i + limb_offset) < L {
+                let near_loc = i + limb_offset;
+                let near_limb = limb >> limb_fraction;
+                shifted.limbs[near_loc] ^= near_limb;
+            }
+            if (i + limb_offset + 1) < L {
+                let far_loc = i + limb_offset + 1;
+                let far_limb = if limb_fraction == 0 {
+                    0
+                } else {
+                    limb << (Word::BITS as usize - limb_fraction)
+                };
+                shifted.limbs[far_loc] ^= far_limb;
+            }
+        });
+
+        return shifted;
     }
 
     /// modulus multiplication
     #[allow(unused_variables)]
     pub fn gf_modmul(&self, other: &Self, modulus: &Self) -> Self {
-        todo!();
-    }
-
-    #[allow(unused_variables)]
-    pub fn shr(&self, rhs: usize) -> Self {
         todo!();
     }
 }
@@ -292,6 +342,38 @@ mod tests {
             GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
                 .degree(),
             Degree::NonNegative(104)
+        );
+    }
+
+    #[test]
+    fn test_overflowing_shl() {
+        let expected_poly = GF_2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+        ]);
+        assert_eq!(GF_2_128::ONE.shl(1), expected_poly);
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .shl(4),
+            GF_2_128::from_limbs([0x0000, 0x1B0D, 0x0A68, 0x1A99, 0x2A5A, 0x216C, 0x9719, 0x61A0]),
+        );
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .shl(16),
+            GF_2_128::from_limbs([0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A, 0x0000]),
+        );
+    }
+
+    #[test]
+    fn test_overflowing_shr() {
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .shr(4),
+            GF_2_128::from_limbs([0x0000, 0x001B, 0x0D0A, 0x681A, 0x992A, 0x5A21, 0x6C97, 0x1961,]),
+        );
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .shr(16),
+            GF_2_128::from_limbs([0x0000, 0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971,]),
         );
     }
 }
