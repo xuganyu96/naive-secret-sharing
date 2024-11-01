@@ -28,6 +28,33 @@ pub fn widening_clmul(a: Word, b: Word) -> (Word, Word) {
     return prod;
 }
 
+/// The degree of a polynomial, which is a non-negative integer for non-zero polynomials and
+/// negative infinity for 0.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Degree {
+    NonNegative(usize),
+    NegativeInfinity,
+}
+
+impl PartialOrd for Degree {
+    /// Comparison for degree; it will always return Some(_)
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        match (self, other) {
+            (Self::NegativeInfinity, Self::NegativeInfinity) => Some(core::cmp::Ordering::Equal),
+            (Self::NegativeInfinity, Self::NonNegative(_)) => Some(core::cmp::Ordering::Less),
+            (Self::NonNegative(_), Self::NegativeInfinity) => Some(core::cmp::Ordering::Greater),
+            (Self::NonNegative(a), Self::NonNegative(b)) => a.partial_cmp(b),
+        }
+    }
+}
+
+impl Ord for Degree {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.partial_cmp(other)
+            .expect("Degree comparison should always be well-defined")
+    }
+}
+
 /// Limbs are organized in big-endian bytes order. The limb at smaller index encodes coefficients
 /// at higher-power term
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -52,11 +79,42 @@ impl<const L: usize> ExtField2<L> {
         Self { limbs: [0; L] }
     }
 
+    pub fn is_zero(&self) -> bool {
+        self.limbs == Self::ZERO.limbs
+    }
+
     pub const fn one() -> Self {
         let mut limbs = [0; L];
         limbs[L - 1] = 1;
 
         Self::from_limbs(limbs)
+    }
+
+    /// The number of leading zeros, counting from higher power terms
+    /// e.g. In GF(2^128), the polynomial "1" has 127 leading zeros
+    pub fn leading_zeros(&self) -> usize {
+        let mut count = 0;
+        let mut i = 0;
+
+        while i < L && self.limbs[i] == 0 {
+            count += Word::BITS as usize;
+            i += 1;
+        }
+        if i < L {
+            count += self.limbs[i].leading_zeros() as usize;
+        }
+
+        return count;
+    }
+
+    /// The degree of a polynomial is maximal power whose corresponding term has non-zero
+    /// coefficient. The degree of 0 is minus infinity.
+    pub fn degree(&self) -> Degree {
+        if self.is_zero() {
+            return Degree::NegativeInfinity;
+        }
+
+        return Degree::NonNegative(Self::BITS - self.leading_zeros() - 1);
     }
 
     /// Equivalent to applying the bitflip operator "!"
@@ -112,16 +170,17 @@ impl<const L: usize> ExtField2<L> {
         return (high, low);
     }
 
-    /// modulus multiplication
-    #[allow(unused_variables)]
-    pub fn gf_modmul(&self, other: &Self, modulus: &Self) -> Self {
-        todo!();
-    }
-
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
     /// If the shift amount is greater than there are bits in the
     #[allow(unused_variables)]
     pub fn overflowing_shl(&self, rhs: usize) -> (Self, bool) {
+        // TODO: implement this first since modmul will likely need to shift the modulus
+        todo!();
+    }
+
+    /// modulus multiplication
+    #[allow(unused_variables)]
+    pub fn gf_modmul(&self, other: &Self, modulus: &Self) -> Self {
         todo!();
     }
 
@@ -210,5 +269,29 @@ mod tests {
             ]),
         );
         assert_eq!(lhs.widening_gf_mul(&rhs), prod);
+    }
+
+    #[test]
+    fn test_leading_zeros() {
+        assert_eq!(GF_2_128::ZERO.leading_zeros(), 128);
+        assert_eq!(GF_2_128::ONE.leading_zeros(), 127);
+        assert_eq!(GF_2_128::ZERO.not().leading_zeros(), 0);
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .leading_zeros(),
+            23
+        );
+    }
+
+    #[test]
+    fn test_degree() {
+        assert_eq!(GF_2_128::ZERO.degree(), Degree::NegativeInfinity);
+        assert_eq!(GF_2_128::ONE.degree(), Degree::NonNegative(0));
+        assert_eq!(GF_2_128::ZERO.not().degree(), Degree::NonNegative(127));
+        assert_eq!(
+            GF_2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
+                .degree(),
+            Degree::NonNegative(104)
+        );
     }
 }

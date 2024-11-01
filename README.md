@@ -1,5 +1,10 @@
 # Next:
 - [ ] $\text{GF}(2^m)$ arithmetic
+    - [x] Data structure
+    - [x] Addition and subtraction
+    - [x] Widening multiplication
+    - [ ] Short division, wide division
+    - [ ] Modular multiplication
 - [ ] Polynomial ring arithmetic
 - [ ] Lagrange interpolation
 - [ ] Secret and share encoding/decoding
