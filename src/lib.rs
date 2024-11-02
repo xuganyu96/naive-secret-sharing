@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(non_camel_case_types)]
 
 pub type Word = u16;
 
@@ -22,8 +21,9 @@ pub fn widening_clmul(a: Word, b: Word) -> (Word, Word) {
     return prod;
 }
 
-/// The degree of a polynomial, which is a non-negative integer for non-zero polynomials and
-/// negative infinity for 0.
+/// The degree of a polynomial is the highest power of term with non-zero coefficient
+/// The degree of (x ** 4 + 1) is 4
+/// The degree of 1 is 0, the degree of 0 is minus infinity
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Degree {
     NonNegative(usize),
@@ -49,34 +49,45 @@ impl Ord for Degree {
     }
 }
 
-/// Limbs are organized in big-endian bytes order. The limb at smaller index encodes coefficients
-/// at higher-power term
+/// An element of the polynomial ring F2[x]
+///
+/// Each bit encodes the a coefficient. The most significant bit encodes the coefficient of the
+/// highest power term. F2x::<L> can encode a polynomial with degree up to (Word::BITS * L - 1).
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct F2X<const L: usize> {
+pub struct F2x<const L: usize> {
     limbs: [Word; L],
 }
 
-impl<const L: usize> F2X<L> {
+impl<const L: usize> F2x<L> {
     pub const ZERO: Self = Self::zero();
     pub const ONE: Self = Self::one();
     pub const BITS: usize = (Word::BITS as usize) * L;
-
-    pub const fn as_limbs(&self) -> &[Word] {
-        &self.limbs
-    }
 
     pub const fn from_limbs(limbs: [Word; L]) -> Self {
         Self { limbs }
     }
 
-    pub const fn zero() -> Self {
-        Self { limbs: [0; L] }
+    /// Get a referene to the limb at the specified location
+    pub fn get_limb(&self, i: usize) -> Option<&Word> {
+        self.limbs.get(i)
     }
 
+    /// Get a mutable referene to the limb at the specified location
+    pub fn get_mut_limb(&mut self, i: usize) -> Option<&mut Word> {
+        self.limbs.get_mut(i)
+    }
+
+    /// The 0 polynomial
+    pub const fn zero() -> Self {
+        Self::from_limbs([0; L])
+    }
+
+    /// Return true if self is the 0 polynomial
     pub fn is_zero(&self) -> bool {
         self.limbs == Self::ZERO.limbs
     }
 
+    /// The 1 polynomial
     pub const fn one() -> Self {
         let mut limbs = [0; L];
         limbs[L - 1] = 1;
@@ -101,8 +112,7 @@ impl<const L: usize> F2X<L> {
         return count;
     }
 
-    /// The degree of a polynomial is maximal power whose corresponding term has non-zero
-    /// coefficient. The degree of 0 is minus infinity.
+    /// The degree of this polynomial
     pub fn degree(&self) -> Degree {
         if self.is_zero() {
             return Degree::NegativeInfinity;
@@ -115,7 +125,7 @@ impl<const L: usize> F2X<L> {
     pub fn not(&self) -> Self {
         let mut output = Self::ZERO;
 
-        self.as_limbs()
+        self.limbs
             .iter()
             .enumerate()
             .for_each(|(i, limb)| output.limbs[i] = !limb);
@@ -129,7 +139,7 @@ impl<const L: usize> F2X<L> {
 
         for i in 0..L {
             // No need for bound check; guaranteed to be within bounds.
-            limbs[i] = self.as_limbs()[i] ^ other.as_limbs()[i];
+            limbs[i] = self.limbs[i] ^ other.limbs[i];
         }
 
         return Self::from_limbs(limbs);
@@ -141,7 +151,7 @@ impl<const L: usize> F2X<L> {
     }
 
     /// School book multiplication with L^2 steps
-    pub fn widening_mul(&self, other: &Self) -> WideF2X<L> {
+    pub fn widening_mul(&self, other: &Self) -> WideF2x<L> {
         let (mut high, mut low) = (Self::ZERO, Self::ZERO);
         for i in 0..L {
             for j in 0..L {
@@ -160,7 +170,7 @@ impl<const L: usize> F2X<L> {
             }
         }
 
-        WideF2X::<L>::from_f2x(high, low)
+        WideF2x::<L>::from_f2x(high, low)
     }
 
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
@@ -254,8 +264,8 @@ impl<const L: usize> F2X<L> {
     }
 
     /// Multiplication followed by modulus reduction. This function assumes that the remainder will
-    /// fit into a single F2X<L>. If not, then
-    pub fn modmul(&self, rhs: &Self, modulus: &WideF2X<L>) -> Self {
+    /// fit into a single F2x<L>. If not, then
+    pub fn modmul(&self, rhs: &Self, modulus: &WideF2x<L>) -> Self {
         if self.is_zero() || rhs.is_zero() {
             return Self::ZERO;
         }
@@ -273,17 +283,20 @@ impl<const L: usize> F2X<L> {
 
 /// Wide F2[x] is useful for performing reduction after widening multiplication
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WideF2X<const L: usize> {
-    high: F2X<L>,
-    low: F2X<L>,
+pub struct WideF2x<const L: usize> {
+    /// The higher power terms
+    high: F2x<L>,
+
+    /// The lower power terms
+    low: F2x<L>,
 }
 
-impl<const L: usize> WideF2X<L> {
+impl<const L: usize> WideF2x<L> {
     const BITS: usize = 2 * (Word::BITS as usize) * L;
     const ZERO: Self = Self::zero();
     const ONE: Self = Self::one();
 
-    pub fn from_f2x(high: F2X<L>, low: F2X<L>) -> Self {
+    pub fn from_f2x(high: F2x<L>, low: F2x<L>) -> Self {
         Self { high, low }
     }
 
@@ -309,15 +322,15 @@ impl<const L: usize> WideF2X<L> {
 
     pub const fn zero() -> Self {
         Self {
-            high: F2X::<L>::ZERO,
-            low: F2X::<L>::ZERO,
+            high: F2x::<L>::ZERO,
+            low: F2x::<L>::ZERO,
         }
     }
 
     pub const fn one() -> Self {
         Self {
-            high: F2X::<L>::ZERO,
-            low: F2X::<L>::ONE,
+            high: F2x::<L>::ZERO,
+            low: F2x::<L>::ONE,
         }
     }
 
@@ -448,7 +461,7 @@ impl<const L: usize> WideF2X<L> {
         return (quot, rem);
     }
 
-    pub fn truncate(&self) -> F2X<L> {
+    pub fn truncate(&self) -> F2x<L> {
         if !self.high.is_zero() {
             panic!("high-order limbs are not zeros");
         }
@@ -457,7 +470,8 @@ impl<const L: usize> WideF2X<L> {
 }
 
 // TODO: what if I need to implement GF(2^12), such as in classic McEliece
-pub type F2_128 = F2X<8>;
+pub type F2_128 = F2x<8>;
+pub type WideF2_128 = WideF2x<8>;
 
 #[cfg(test)]
 mod tests {
@@ -477,13 +491,13 @@ mod tests {
     fn test_extfield_widening_mul() {
         assert_eq!(
             F2_128::ZERO.not().widening_mul(&F2_128::ZERO),
-            WideF2X::from_f2x(F2_128::ZERO, F2_128::ZERO)
+            WideF2x::from_f2x(F2_128::ZERO, F2_128::ZERO)
         );
         // 0xFFFF * 0xFFFF = 0x5555,0x5555
         let fives = F2_128::from_limbs([0x5555; 8]);
         assert_eq!(
             F2_128::ZERO.not().widening_mul(&F2_128::ZERO.not()),
-            WideF2X::from_f2x(fives, fives)
+            WideF2x::from_f2x(fives, fives)
         );
 
         // Random cases generated by SymPy
@@ -493,7 +507,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
         ]);
-        let prod = WideF2X::from_f2x(
+        let prod = WideF2x::from_f2x(
             F2_128::from_limbs([
                 0x1EAB, 0x66E7, 0x4160, 0x869E, 0xA3A7, 0x038E, 0x03AB, 0x25BF,
             ]),
@@ -509,7 +523,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0xEB90, 0xC40B, 0xFD14, 0xE019, 0xDFC5, 0xE087, 0x23EF, 0xA19F,
         ]);
-        let prod = WideF2X::from_f2x(
+        let prod = WideF2x::from_f2x(
             F2_128::from_limbs([
                 0x0EA0, 0x7C5D, 0xFBA7, 0x0792, 0x1B33, 0x323D, 0xE533, 0x6BF7,
             ]),
@@ -525,7 +539,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0x0817, 0x2EE5, 0xB309, 0x150F, 0x2BF1, 0x5A62, 0x2197, 0xB1C8,
         ]);
-        let prod = WideF2X::from_f2x(
+        let prod = WideF2x::from_f2x(
             F2_128::from_limbs([
                 0x0543, 0x30B1, 0x8B03, 0x4A8E, 0x43F7, 0x29DB, 0x10A6, 0xBCB3,
             ]),
@@ -654,27 +668,27 @@ mod tests {
 
     #[test]
     fn test_widef2x_degree() {
-        let lhs = WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO);
+        let lhs = WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO);
         assert_eq!(lhs.degree(), Degree::NonNegative(128));
-        let lhs = WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE);
+        let lhs = WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE);
         assert_eq!(lhs.degree(), Degree::NonNegative(0));
-        let lhs = WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ZERO);
+        let lhs = WideF2x::from_f2x(F2_128::ZERO, F2_128::ZERO);
         assert_eq!(lhs.degree(), Degree::NegativeInfinity);
     }
 
     #[test]
     fn test_widef2x_shl() {
         assert_eq!(
-            WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)).shl(1),
-            WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO)
+            WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)).shl(1),
+            WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO)
         );
     }
 
     #[test]
     fn test_widef2x_shr() {
         assert_eq!(
-            WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO).shr(1),
-            WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)),
+            WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO).shr(1),
+            WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)),
         );
     }
 
@@ -686,19 +700,19 @@ mod tests {
         .widening_mul(&F2_128::from_limbs([
             0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
         ]));
-        let quot = WideF2X::<8>::from_f2x(
+        let quot = WideF2x::from_f2x(
             F2_128::ZERO,
             F2_128::from_limbs([
                 0x1EAB, 0x66E7, 0x4160, 0x869E, 0xA3A7, 0x038E, 0x03AB, 0x25BF,
             ]),
         );
-        let rem = WideF2X::<8>::from_f2x(
+        let rem = WideF2x::from_f2x(
             F2_128::ZERO,
             F2_128::from_limbs([
                 0x77C9, 0xE332, 0x2107, 0x2707, 0x8AFD, 0x8E14, 0xE779, 0x45CE,
             ]),
         );
-        let rhs = WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO);
+        let rhs = WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO);
         assert_eq!(lhs.euclidean_div(&rhs), (quot, rem));
     }
 
@@ -710,7 +724,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0xC9BE, 0xD58C, 0x706B, 0x3D2B, 0xF2FE, 0x1C1B, 0xAFAA, 0x1F84,
         ]);
-        let modulus = WideF2X::<8>::from_f2x(
+        let modulus = WideF2x::from_f2x(
             F2_128::ONE,
             F2_128::from_limbs([
                 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0085,
@@ -728,7 +742,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0x212F, 0x8E8A, 0xCF1E, 0x5621, 0x12C1, 0xADE4, 0x326B, 0x3D5F,
         ]);
-        let modulus = WideF2X::<8>::from_f2x(
+        let modulus = WideF2x::from_f2x(
             F2_128::ONE,
             F2_128::from_limbs([
                 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0085,
