@@ -133,25 +133,36 @@ def random_gf2_128_modmul():
     rem = lhs * rhs % gf2_128_modulus
     rem_limbs = convert_to_limbs(hex_encode_coeffs(rem, 128), wordsize)
     rem_str = ", ".join(rem_limbs)
+    # print(
+    #     f"""        let lhs = F2_128::from_limbs([
+    #         {lhs_str}
+    #     ]);
+    #     let rhs = F2_128::from_limbs([
+    #         {rhs_str}
+    #     ]);
+    #     let modulus = WideF2X::<8>::from_f2x(
+    #         F2_128::ONE,
+    #         F2_128::from_limbs([
+    #             {modulus_low_str}
+    #         ]),
+    #     );
+    #     let rem = F2_128::from_limbs([
+    #         {rem_str}
+    #     ]);
+    #     assert_eq!(lhs.modmul(&rhs, &modulus), rem);"""
+    # )
     print(
-        f"""        let lhs = F2_128::from_limbs([
+        f"""
+        let lhs = GF2_128::from_poly(F2x::<8>::from_limbs([
             {lhs_str}
-        ]);
-        let rhs = F2_128::from_limbs([
+        ]));
+        let rhs = GF2_128::from_poly(F2x::<8>::from_limbs([
             {rhs_str}
-        ]);
-        let modulus = WideF2X::<8>::from_f2x(
-            F2_128::ONE,
-            F2_128::from_limbs([
-                {modulus_low_str}
-            ]),
-        );
-        let rem = F2_128::from_limbs([
+        ]));
+        let rem = GF2_128::from_poly(F2x::<8>::from_limbs([
             {rem_str}
-        ]);
-
-        assert_eq!(lhs.modmul(&rhs, &modulus), rem);
-    """
+        ]));
+        assert_eq!(lhs.mul(&rhs), rem);"""
     )
 
 
