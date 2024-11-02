@@ -124,7 +124,7 @@ impl<const L: usize> F2X<L> {
     }
 
     /// Addition in GF(2^m) is a simple XOR and will never overflow
-    pub fn gf_add(&self, other: &Self) -> Self {
+    pub fn add(&self, other: &Self) -> Self {
         let mut limbs = [0; L];
 
         for i in 0..L {
@@ -136,12 +136,12 @@ impl<const L: usize> F2X<L> {
     }
 
     /// Subtraction is identical to addition in GF(2^m) because -1 = 1
-    pub fn gf_sub(&self, other: &Self) -> Self {
-        self.gf_add(other)
+    pub fn sub(&self, other: &Self) -> Self {
+        self.add(other)
     }
 
     /// School book multiplication with L^2 steps
-    pub fn widening_gf_mul(&self, other: &Self) -> (Self, Self) {
+    pub fn widening_mul(&self, other: &Self) -> WideF2X<L> {
         let (mut high, mut low) = (Self::ZERO, Self::ZERO);
         for i in 0..L {
             for j in 0..L {
@@ -160,7 +160,7 @@ impl<const L: usize> F2X<L> {
             }
         }
 
-        return (high, low);
+        WideF2X::<L>::from_f2x(high, low)
     }
 
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
@@ -246,17 +246,213 @@ impl<const L: usize> F2X<L> {
                 _ => panic!("Divisor is unexpectedly zero"),
             };
             let degree_diff = rem_degree - rhs_degree;
-            quot = quot.gf_add(&Self::ONE.shl(degree_diff));
-            rem = rem.gf_sub(&rhs.shl(degree_diff));
+            quot = quot.add(&Self::ONE.shl(degree_diff));
+            rem = rem.sub(&rhs.shl(degree_diff));
         }
 
         return (quot, rem);
     }
 
-    /// modulus multiplication
-    #[allow(unused_variables)]
-    pub fn gf_modmul(&self, other: &Self, modulus: &Self) -> Self {
-        todo!();
+    /// Multiplication followed by modulus reduction. This function assumes that the remainder will
+    /// fit into a single F2X<L>. If not, then
+    pub fn modmul(&self, rhs: &Self, modulus: &WideF2X<L>) -> Self {
+        if self.is_zero() || rhs.is_zero() {
+            return Self::ZERO;
+        }
+        // The degree of modulus must be no more than there are bits; for example, the modulus in
+        // GF(2 ** 128) must have degree 128 or lower
+        if modulus.degree() > Degree::NonNegative(Self::BITS) {
+            panic!("modulus degree is too high");
+        }
+        let prod = self.widening_mul(rhs);
+        let (_, rem) = prod.euclidean_div(modulus);
+
+        rem.truncate()
+    }
+}
+
+/// Wide F2[x] is useful for performing reduction after widening multiplication
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WideF2X<const L: usize> {
+    high: F2X<L>,
+    low: F2X<L>,
+}
+
+impl<const L: usize> WideF2X<L> {
+    const BITS: usize = 2 * (Word::BITS as usize) * L;
+    const ZERO: Self = Self::zero();
+    const ONE: Self = Self::one();
+
+    pub fn from_f2x(high: F2X<L>, low: F2X<L>) -> Self {
+        Self { high, low }
+    }
+
+    /// Get the limb at the specified location if it exists
+    pub fn get_limb(&self, loc: usize) -> Option<&Word> {
+        if loc < L {
+            return self.high.limbs.get(loc);
+        } else if loc < 2 * L {
+            return self.low.limbs.get(loc - L);
+        }
+        return None;
+    }
+
+    /// Get a mutable reference to the limb at the specified location
+    pub fn get_mut_limb(&mut self, loc: usize) -> Option<&mut Word> {
+        if loc < L {
+            return self.high.limbs.get_mut(loc);
+        } else if loc < 2 * L {
+            return self.low.limbs.get_mut(loc - L);
+        }
+        return None;
+    }
+
+    pub const fn zero() -> Self {
+        Self {
+            high: F2X::<L>::ZERO,
+            low: F2X::<L>::ZERO,
+        }
+    }
+
+    pub const fn one() -> Self {
+        Self {
+            high: F2X::<L>::ZERO,
+            low: F2X::<L>::ONE,
+        }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.high.is_zero() && self.low.is_zero()
+    }
+
+    pub fn leading_zeros(&self) -> usize {
+        if self.high.is_zero() {
+            self.high.leading_zeros() + self.low.leading_zeros()
+        } else {
+            self.high.leading_zeros()
+        }
+    }
+
+    pub fn degree(&self) -> Degree {
+        if self.is_zero() {
+            return Degree::NegativeInfinity;
+        }
+        return Degree::NonNegative(Self::BITS - self.leading_zeros() - 1);
+    }
+
+    pub fn add(&self, rhs: &Self) -> Self {
+        Self::from_f2x(self.high.add(&rhs.high), self.low.add(&rhs.low))
+    }
+
+    pub fn sub(&self, rhs: &Self) -> Self {
+        self.add(rhs)
+    }
+
+    /// Left shift by the specified amount. Panic if rhs is greater than or equal to Self::BITS
+    pub fn shl(&self, rhs: usize) -> Self {
+        let mut shifted = Self::ZERO;
+
+        if rhs >= Self::BITS {
+            panic!("attempt to shift left with overflow");
+        }
+
+        let limb_offset = rhs / (Word::BITS as usize);
+        let limb_fraction = rhs % (Word::BITS as usize);
+        for i in 0..(2 * L) {
+            let limb = self.get_limb(i).expect("unexpected out-of-bound");
+            if limb_offset <= i {
+                let near_loc = i - limb_offset;
+                let near_limb = (*limb) << limb_fraction;
+                let shifted_limb = shifted
+                    .get_mut_limb(near_loc)
+                    .expect("unexpected out-of-bound");
+                *shifted_limb ^= near_limb;
+            }
+            if limb_offset + 1 <= i {
+                let far_loc = i - limb_offset - 1;
+                let far_limb = if limb_fraction == 0 {
+                    0
+                } else {
+                    (*limb) >> (Word::BITS as usize - limb_fraction)
+                };
+                let shifted_limb = shifted
+                    .get_mut_limb(far_loc)
+                    .expect("unexpected out-of-bound");
+                *shifted_limb ^= far_limb;
+            }
+        }
+
+        shifted
+    }
+
+    pub fn shr(&self, rhs: usize) -> Self {
+        let mut shifted = Self::ZERO;
+
+        if rhs >= Self::BITS {
+            panic!("attempt to shift right with overflow");
+        }
+
+        let limb_offset = rhs / Word::BITS as usize;
+        let limb_fraction = rhs % Word::BITS as usize;
+        for i in 0..(2 * L) {
+            let limb = self.get_limb(i).expect("unexpected out-of-bound");
+            if (i + limb_offset) < 2 * L {
+                let near_loc = i + limb_offset;
+                let near_limb = *limb >> limb_fraction;
+                let shifted_limb = shifted
+                    .get_mut_limb(near_loc)
+                    .expect("unexpected out-of-bound");
+                *shifted_limb ^= near_limb;
+            }
+            if (i + limb_offset + 1) < 2 * L {
+                let far_loc = i + limb_offset + 1;
+                let far_limb = if limb_fraction == 0 {
+                    0
+                } else {
+                    *limb << (Word::BITS as usize - limb_fraction)
+                };
+                let shifted_limb = shifted
+                    .get_mut_limb(far_loc)
+                    .expect("unexpected out-of-bound");
+                *shifted_limb ^= far_limb;
+            }
+        }
+
+        return shifted;
+    }
+
+    /// Euclidean division, returning (quotient, remainder)
+    /// Will panic if divisor is zero
+    pub fn euclidean_div(&self, rhs: &Self) -> (Self, Self) {
+        if rhs.is_zero() {
+            panic!("attempt to divide by zero");
+        }
+        let mut quot = Self::ZERO;
+        let mut rem = self.clone();
+
+        while rem.degree() >= rhs.degree() {
+            // Both rem and rhs are guaranteed to be NonNegative
+            let rem_degree: usize = match rem.degree() {
+                Degree::NonNegative(degree) => degree,
+                _ => panic!("Remainder is unexpectedly zero"),
+            };
+            let rhs_degree: usize = match rhs.degree() {
+                Degree::NonNegative(degree) => degree,
+                _ => panic!("Divisor is unexpectedly zero"),
+            };
+            let degree_diff = rem_degree - rhs_degree;
+            quot = quot.add(&Self::ONE.shl(degree_diff));
+            rem = rem.sub(&rhs.shl(degree_diff));
+        }
+
+        return (quot, rem);
+    }
+
+    pub fn truncate(&self) -> F2X<L> {
+        if !self.high.is_zero() {
+            panic!("high-order limbs are not zeros");
+        }
+        self.low.clone()
     }
 }
 
@@ -280,14 +476,14 @@ mod tests {
     #[test]
     fn test_extfield_widening_mul() {
         assert_eq!(
-            F2_128::ZERO.not().widening_gf_mul(&F2_128::ZERO),
-            (F2_128::ZERO, F2_128::ZERO)
+            F2_128::ZERO.not().widening_mul(&F2_128::ZERO),
+            WideF2X::from_f2x(F2_128::ZERO, F2_128::ZERO)
         );
         // 0xFFFF * 0xFFFF = 0x5555,0x5555
         let fives = F2_128::from_limbs([0x5555; 8]);
         assert_eq!(
-            F2_128::ZERO.not().widening_gf_mul(&F2_128::ZERO.not()),
-            (fives, fives)
+            F2_128::ZERO.not().widening_mul(&F2_128::ZERO.not()),
+            WideF2X::from_f2x(fives, fives)
         );
 
         // Random cases generated by SymPy
@@ -297,7 +493,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
         ]);
-        let prod = (
+        let prod = WideF2X::from_f2x(
             F2_128::from_limbs([
                 0x1EAB, 0x66E7, 0x4160, 0x869E, 0xA3A7, 0x038E, 0x03AB, 0x25BF,
             ]),
@@ -305,7 +501,7 @@ mod tests {
                 0x77C9, 0xE332, 0x2107, 0x2707, 0x8AFD, 0x8E14, 0xE779, 0x45CE,
             ]),
         );
-        assert_eq!(lhs.widening_gf_mul(&rhs), prod);
+        assert_eq!(lhs.widening_mul(&rhs), prod);
 
         let lhs = F2_128::from_limbs([
             0x102D, 0x2BD4, 0x66AC, 0xBCB1, 0xF7C7, 0x5FE9, 0xBBC2, 0x335D,
@@ -313,7 +509,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0xEB90, 0xC40B, 0xFD14, 0xE019, 0xDFC5, 0xE087, 0x23EF, 0xA19F,
         ]);
-        let prod = (
+        let prod = WideF2X::from_f2x(
             F2_128::from_limbs([
                 0x0EA0, 0x7C5D, 0xFBA7, 0x0792, 0x1B33, 0x323D, 0xE533, 0x6BF7,
             ]),
@@ -321,7 +517,7 @@ mod tests {
                 0x19B6, 0xA88E, 0x62E5, 0xBB2E, 0x06AF, 0xAB14, 0x6A88, 0xE42B,
             ]),
         );
-        assert_eq!(lhs.widening_gf_mul(&rhs), prod);
+        assert_eq!(lhs.widening_mul(&rhs), prod);
 
         let lhs = F2_128::from_limbs([
             0xA95D, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,
@@ -329,7 +525,7 @@ mod tests {
         let rhs = F2_128::from_limbs([
             0x0817, 0x2EE5, 0xB309, 0x150F, 0x2BF1, 0x5A62, 0x2197, 0xB1C8,
         ]);
-        let prod = (
+        let prod = WideF2X::from_f2x(
             F2_128::from_limbs([
                 0x0543, 0x30B1, 0x8B03, 0x4A8E, 0x43F7, 0x29DB, 0x10A6, 0xBCB3,
             ]),
@@ -337,11 +533,11 @@ mod tests {
                 0x7D9B, 0x512D, 0x94F5, 0x12B3, 0x8D64, 0xE68F, 0xEAFD, 0xC150,
             ]),
         );
-        assert_eq!(lhs.widening_gf_mul(&rhs), prod);
+        assert_eq!(lhs.widening_mul(&rhs), prod);
     }
 
     #[test]
-    fn test_leading_zeros() {
+    fn test_f2x_leading_zeros() {
         assert_eq!(F2_128::ZERO.leading_zeros(), 128);
         assert_eq!(F2_128::ONE.leading_zeros(), 127);
         assert_eq!(F2_128::ZERO.not().leading_zeros(), 0);
@@ -353,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_degree() {
+    fn test_f2x_degree() {
         assert_eq!(F2_128::ZERO.degree(), Degree::NegativeInfinity);
         assert_eq!(F2_128::ONE.degree(), Degree::NonNegative(0));
         assert_eq!(F2_128::ZERO.not().degree(), Degree::NonNegative(127));
@@ -365,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_overflowing_shl() {
+    fn test_f2x_shl() {
         let expected_poly = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
         ]);
@@ -383,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn test_overflowing_shr() {
+    fn test_f2x_shr() {
         assert_eq!(
             F2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
                 .shr(4),
@@ -397,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn test_euclidean_div() {
+    fn test_f2x_euclidean_div() {
         assert_eq!(
             F2_128::ZERO.euclidean_div(&F2_128::ONE),
             (F2_128::ZERO, F2_128::ZERO)
@@ -454,5 +650,94 @@ mod tests {
                 ])
             )
         );
+    }
+
+    #[test]
+    fn test_widef2x_degree() {
+        let lhs = WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO);
+        assert_eq!(lhs.degree(), Degree::NonNegative(128));
+        let lhs = WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE);
+        assert_eq!(lhs.degree(), Degree::NonNegative(0));
+        let lhs = WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ZERO);
+        assert_eq!(lhs.degree(), Degree::NegativeInfinity);
+    }
+
+    #[test]
+    fn test_widef2x_shl() {
+        assert_eq!(
+            WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)).shl(1),
+            WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO)
+        );
+    }
+
+    #[test]
+    fn test_widef2x_shr() {
+        assert_eq!(
+            WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO).shr(1),
+            WideF2X::<8>::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)),
+        );
+    }
+
+    #[test]
+    fn test_widef2x_euclidean_div() {
+        let lhs = F2_128::from_limbs([
+            0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
+        ])
+        .widening_mul(&F2_128::from_limbs([
+            0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
+        ]));
+        let quot = WideF2X::<8>::from_f2x(
+            F2_128::ZERO,
+            F2_128::from_limbs([
+                0x1EAB, 0x66E7, 0x4160, 0x869E, 0xA3A7, 0x038E, 0x03AB, 0x25BF,
+            ]),
+        );
+        let rem = WideF2X::<8>::from_f2x(
+            F2_128::ZERO,
+            F2_128::from_limbs([
+                0x77C9, 0xE332, 0x2107, 0x2707, 0x8AFD, 0x8E14, 0xE779, 0x45CE,
+            ]),
+        );
+        let rhs = WideF2X::<8>::from_f2x(F2_128::ONE, F2_128::ZERO);
+        assert_eq!(lhs.euclidean_div(&rhs), (quot, rem));
+    }
+
+    #[test]
+    fn test_f2x_modmul() {
+        let lhs = F2_128::from_limbs([
+            0x1A02, 0xC5D5, 0x3035, 0x2794, 0xBAE0, 0x9A71, 0x0B95, 0xD81A,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0xC9BE, 0xD58C, 0x706B, 0x3D2B, 0xF2FE, 0x1C1B, 0xAFAA, 0x1F84,
+        ]);
+        let modulus = WideF2X::<8>::from_f2x(
+            F2_128::ONE,
+            F2_128::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0085,
+            ]),
+        );
+        let rem = F2_128::from_limbs([
+            0x2CD6, 0x23A4, 0x9F7D, 0xEA15, 0x62DD, 0x69E1, 0x63D9, 0xB940,
+        ]);
+
+        assert_eq!(lhs.modmul(&rhs, &modulus), rem);
+
+        let lhs = F2_128::from_limbs([
+            0x292C, 0xFAE0, 0x70BB, 0xC697, 0xEF2B, 0x325B, 0x3CE3, 0x1AEF,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x212F, 0x8E8A, 0xCF1E, 0x5621, 0x12C1, 0xADE4, 0x326B, 0x3D5F,
+        ]);
+        let modulus = WideF2X::<8>::from_f2x(
+            F2_128::ONE,
+            F2_128::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0085,
+            ]),
+        );
+        let rem = F2_128::from_limbs([
+            0x248A, 0xC6E8, 0xEF4F, 0xD895, 0x5C44, 0xC8A9, 0x7F71, 0x3518,
+        ]);
+
+        assert_eq!(lhs.modmul(&rhs, &modulus), rem);
     }
 }

@@ -81,13 +81,13 @@ def generate_extfield_widening_mul(gf_bits: int):
     assert_eq!(lhs.widening_gf_mul(&rhs), prod);"""
     )
 
+
 def generate_short_euclidean_division(gf_bits: int):
     lhs = sample_polynomial(Symbol("x"), gf_bits - 1, 2)
     rhs = sample_polynomial(Symbol("x"), (gf_bits - 1) // 2, 2)
     rem = lhs % rhs
     quot = (lhs - rem) // rhs
     assert (rhs * quot + rem) == lhs
-
 
     lhs_limbs = convert_to_limbs(hex_encode_coeffs(lhs, gf_bits), 16)
     lhs_str = ", ".join(lhs_limbs)
@@ -98,7 +98,8 @@ def generate_short_euclidean_division(gf_bits: int):
     rem_limbs = convert_to_limbs(hex_encode_coeffs(rem, gf_bits), 16)
     rem_str = ", ".join(rem_limbs)
 
-    print(f"""        assert_eq!(
+    print(
+        f"""        assert_eq!(
             GF_2_128::from_limbs([
                 {lhs_str}
             ]).euclidean_div(&GF_2_128::from_limbs([
@@ -109,8 +110,52 @@ def generate_short_euclidean_division(gf_bits: int):
             ]), GF_2_128::from_limbs([
                 {rem_str}
             ]))
-        );""")
+        );"""
+    )
+
+
+def random_gf2_128_modmul():
+    x = Symbol("x")
+    gf_bits, wordsize = 128, 16
+    lhs = sample_polynomial(x, gf_bits - 1, 2)
+    rhs = sample_polynomial(x, gf_bits - 1, 2)
+    gf2_128_modulus = Poly(x**128 + x**7 + x**2 + 1, modulus=2)
+    lhs_limbs = convert_to_limbs(hex_encode_coeffs(lhs, gf_bits), wordsize)
+    lhs_str = ", ".join(lhs_limbs)
+    rhs_limbs = convert_to_limbs(hex_encode_coeffs(rhs, gf_bits), wordsize)
+    rhs_str = ", ".join(rhs_limbs)
+    modulus_limbs = convert_to_limbs(
+        hex_encode_coeffs(gf2_128_modulus, 2 * gf_bits), wordsize
+    )
+    # modulus_high_limbs = modulus_limbs[:len(modulus_limbs) // 2]
+    modulus_low_limbs = modulus_limbs[len(modulus_limbs) // 2 :]
+    modulus_low_str = ", ".join(modulus_low_limbs)
+    rem = lhs * rhs % gf2_128_modulus
+    rem_limbs = convert_to_limbs(hex_encode_coeffs(rem, 128), wordsize)
+    rem_str = ", ".join(rem_limbs)
+    print(
+        f"""        let lhs = F2_128::from_limbs([
+            {lhs_str}
+        ]);
+        let rhs = F2_128::from_limbs([
+            {rhs_str}
+        ]);
+        let modulus = WideF2X::<8>::from_f2x(
+            F2_128::ONE,
+            F2_128::from_limbs([
+                {modulus_low_str}
+            ]),
+        );
+        let rem = F2_128::from_limbs([
+            {rem_str}
+        ]);
+
+        assert_eq!(lhs.modmul(&rhs, &modulus), rem);
+    """
+    )
+
 
 if __name__ == "__main__":
     # generate_extfield_widening_mul(128)
-    generate_short_euclidean_division(128)
+    # generate_short_euclidean_division(128)
+    random_gf2_128_modmul()
