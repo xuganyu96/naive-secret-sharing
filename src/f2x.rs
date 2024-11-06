@@ -112,7 +112,7 @@ impl<const L: usize> F2x<L> {
         return count;
     }
 
-    /// The degree of this polynomial
+    /// The degree of this polynomial. See `Degree` for the mathematical definition.
     pub fn degree(&self) -> Degree {
         if self.is_zero() {
             return Degree::NegativeInfinity;
@@ -133,8 +133,8 @@ impl<const L: usize> F2x<L> {
         return output;
     }
 
-    /// Addition in GF(2^m) is a simple XOR and will never overflow
-    pub fn add(&self, other: &Self) -> Self {
+    /// Apply bitwise XOR
+    pub fn xor(&self, other: &Self) -> Self {
         let mut limbs = [0; L];
 
         for i in 0..L {
@@ -145,9 +145,14 @@ impl<const L: usize> F2x<L> {
         return Self::from_limbs(limbs);
     }
 
+    /// Addition in GF(2^m) is a simple XOR and will never overflow
+    pub fn add(&self, other: &Self) -> Self {
+        self.xor(other)
+    }
+
     /// Subtraction is identical to addition in GF(2^m) because -1 = 1
     pub fn sub(&self, other: &Self) -> Self {
-        self.add(other)
+        self.xor(other)
     }
 
     /// School book multiplication with L^2 steps
@@ -278,6 +283,27 @@ impl<const L: usize> F2x<L> {
         let (_, rem) = prod.euclidean_div(modulus);
 
         rem.truncate()
+    }
+
+    /// Use [Euclid's algorithm](https://en.wikipedia.org/wiki/Euclidean_algorithm) to compute the
+    /// highest-degree polynomial that divides both lhs and rhs.
+    pub fn gcd(lhs: &Self, rhs: &Self) -> Self {
+        let (mut a, mut b): (Self, Self) = if lhs.degree() < rhs.degree() {
+            (rhs.clone(), lhs.clone())
+        } else {
+            (lhs.clone(), rhs.clone())
+        };
+        if b.is_zero() {
+            return a;
+        }
+
+        while !b.is_zero() {
+            let (_, rem) = a.euclidean_div(&b);
+            (a, b) = (b, rem);
+        }
+
+        let divisor = a;
+        divisor
     }
 }
 
@@ -752,5 +778,129 @@ mod tests {
         ]);
 
         assert_eq!(lhs.modmul(&rhs, &modulus), rem);
+    }
+
+    /// Randomly generated GCD from Python
+    #[test]
+    fn test_f2x_gcd() {
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0x88D3, 0xC663, 0x66EC, 0x77EC, 0xF526, 0x6510, 0x5C19, 0x6517
+                ]),
+                &F2_128::from_limbs([
+                    0x23E6, 0x86AB, 0x9E60, 0x2E74, 0x6BE2, 0x87A8, 0x3D6B, 0x651D
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x000D])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xF0D9, 0x2027, 0xBC65, 0x0F0D, 0xE5EB, 0xD78D, 0x967D, 0x489C
+                ]),
+                &F2_128::from_limbs([
+                    0x8F6A, 0xD588, 0xC423, 0xA33D, 0x6819, 0x6C4E, 0x676C, 0xE06F
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xB3D5, 0x9549, 0xCF5D, 0x897A, 0xC79E, 0xC029, 0xB84B, 0xAC6A
+                ]),
+                &F2_128::from_limbs([
+                    0xA495, 0xDB48, 0x0E91, 0x2ED4, 0x6B75, 0xF726, 0xBC16, 0xF311
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0007])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xC6D2, 0xA56B, 0xFEBC, 0x0BC0, 0xFAB8, 0x54AC, 0xF72B, 0x8EE6
+                ]),
+                &F2_128::from_limbs([
+                    0x1585, 0xD7E5, 0x319B, 0x34E5, 0x0628, 0xD2B8, 0x84CB, 0x9DB3
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x000B])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xA2D7, 0xB6DF, 0xECE2, 0xF5F9, 0x9358, 0x001F, 0xC58B, 0x6998
+                ]),
+                &F2_128::from_limbs([
+                    0x53B3, 0xDE89, 0x8495, 0x65F2, 0x2746, 0x2197, 0xF043, 0x0E20
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0308])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xC01A, 0x9409, 0xDF5B, 0x988E, 0x427B, 0xA208, 0x6DEE, 0x5082
+                ]),
+                &F2_128::from_limbs([
+                    0x80C7, 0xDA18, 0x255E, 0xC295, 0x4796, 0x263A, 0x0263, 0x1603
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0x1BA5, 0x59C7, 0x51A8, 0x8633, 0x6996, 0xDDE2, 0xFD11, 0xBC10
+                ]),
+                &F2_128::from_limbs([
+                    0x3873, 0x9182, 0xEAC5, 0x205D, 0x7D38, 0x04AE, 0x972C, 0x906C
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0004])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0x478F, 0x4705, 0x220D, 0xAC34, 0x171F, 0xAF89, 0x15AC, 0x1700
+                ]),
+                &F2_128::from_limbs([
+                    0xC9C4, 0xCE2D, 0x7266, 0xC78B, 0x3DBB, 0x589C, 0xDCDF, 0x8929
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0x6480, 0x2AA3, 0x2F8A, 0x8B81, 0x1371, 0x75ED, 0x7B98, 0x17D9
+                ]),
+                &F2_128::from_limbs([
+                    0xF899, 0x9ABB, 0xD6F7, 0x2998, 0xB5BF, 0xBB6D, 0xF0EC, 0xABA9
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
+        );
+
+        assert_eq!(
+            F2_128::gcd(
+                &F2_128::from_limbs([
+                    0xD641, 0x00B5, 0xC808, 0x3961, 0x2CD7, 0xD722, 0xD9C9, 0x3C09
+                ]),
+                &F2_128::from_limbs([
+                    0x2E55, 0xB6A1, 0x3FB4, 0x2C56, 0x5E1C, 0xEE4D, 0xA7A2, 0x6130
+                ]),
+            ),
+            F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
+        );
     }
 }
