@@ -302,8 +302,7 @@ impl<const L: usize> F2x<L> {
             (a, b) = (b, rem);
         }
 
-        let divisor = a;
-        divisor
+        a
     }
 }
 
