@@ -195,6 +195,48 @@ def generate_f2x_gcd_test_case():
         );"""
     )
 
+def random_f2x_xgcd_test_case():
+    """Sample two random polynomials and compute their GCD"""
+    poly1 = sample_polynomial(Symbol("x"), 127, 2)
+    poly2 = sample_polynomial(Symbol("x"), 127, 2)
+    from sympy import gcdex as sympy_xgcd
+    (poly_s, poly_t, divisor) = sympy_xgcd(poly1, poly2)
+    assert (poly1 % divisor == 0) and (poly2 % divisor == 0), "Sympy GCD is incorrect"
+    assert poly_s * poly1 + poly_t * poly2 == divisor, "Sympy GCD is incorrect"
+
+    poly1_limbs = convert_to_limbs(hex_encode_coeffs(poly1, 128), 16)
+    poly1_str = ", ".join(poly1_limbs)
+    poly2_limbs = convert_to_limbs(hex_encode_coeffs(poly2, 128), 16)
+    poly2_str = ", ".join(poly2_limbs)
+    poly_s_limbs = convert_to_limbs(hex_encode_coeffs(poly_s, 128), 16)
+    poly_s_str = ", ".join(poly_s_limbs)
+    poly_t_limbs = convert_to_limbs(hex_encode_coeffs(poly_t, 128), 16)
+    poly_t_str = ", ".join(poly_t_limbs)
+    divisor_limbs = convert_to_limbs(hex_encode_coeffs(divisor, 128), 16)
+    divisor_str = ", ".join(divisor_limbs)
+
+    print(
+        f"""
+        let lhs = F2_128::from_limbs([
+            {poly1_str}
+        ]);
+        let rhs = F2_128::from_limbs([
+            {poly2_str}
+        ]);
+        let expected_s = F2_128::from_limbs([
+            {poly_s_str}
+        ]);
+        let expected_t = F2_128::from_limbs([
+            {poly_t_str}
+        ]);
+        let expected_d = F2_128::from_limbs([
+            {divisor_str}
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+        """
+    )
+
 
 def generate_widef2x_gcd_test_case():
     """Sample two random polynomials and compute their GCD"""
@@ -264,4 +306,6 @@ if __name__ == "__main__":
     # generate_extfield_widening_mul(128)
     # generate_short_euclidean_division(128)
     # random_gf2_128_modmul()
-    generate_widef2x_gcd_test_case()
+    # generate_widef2x_gcd_test_case()
+    for _ in range(10):
+        random_f2x_xgcd_test_case()

@@ -288,14 +288,7 @@ impl<const L: usize> F2x<L> {
     /// Use [Euclid's algorithm](https://en.wikipedia.org/wiki/Euclidean_algorithm) to compute the
     /// highest-degree polynomial that divides both lhs and rhs.
     pub fn gcd(lhs: &Self, rhs: &Self) -> Self {
-        let (mut a, mut b): (Self, Self) = if lhs.degree() < rhs.degree() {
-            (rhs.clone(), lhs.clone())
-        } else {
-            (lhs.clone(), rhs.clone())
-        };
-        if b.is_zero() {
-            return a;
-        }
+        let (mut a, mut b): (Self, Self) = (lhs.clone(), rhs.clone());
 
         while !b.is_zero() {
             let (_, rem) = a.euclidean_div(&b);
@@ -303,6 +296,23 @@ impl<const L: usize> F2x<L> {
         }
 
         a
+    }
+
+    /// Use [Extended Euclid's algorithm](https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm)
+    /// to compute (s, t, d) such that s * lhs + t * rhs = d and d is the GCD between lhs and rhs
+    pub fn xgcd(lhs: &Self, rhs: &Self) -> (Self, Self, Self) {
+        let (mut rr, mut r): (Self, Self) = (lhs.clone(), rhs.clone());
+        let (mut ss, mut s): (Self, Self) = (Self::ONE, Self::ZERO);
+        let (mut tt, mut t): (Self, Self) = (Self::ZERO, Self::ONE);
+
+        while !r.is_zero() {
+            let (quot, rem) = rr.euclidean_div(&r);
+            (rr, r) = (r, rem);
+            (ss, s) = (s, ss.sub(&quot.widening_mul(&s).truncate()));
+            (tt, t) = (t, tt.sub(&quot.widening_mul(&t).truncate()));
+        }
+
+        (ss, tt, rr)
     }
 }
 
@@ -489,14 +499,7 @@ impl<const L: usize> WideF2x<L> {
     /// Use [Euclid's algorithm](https://en.wikipedia.org/wiki/Euclidean_algorithm) to compute the
     /// highest-degree polynomial that divides both lhs and rhs.
     pub fn gcd(lhs: &Self, rhs: &Self) -> Self {
-        let (mut a, mut b): (Self, Self) = if lhs.degree() < rhs.degree() {
-            (rhs.clone(), lhs.clone())
-        } else {
-            (lhs.clone(), rhs.clone())
-        };
-        if b.is_zero() {
-            return a;
-        }
+        let (mut a, mut b): (Self, Self) = (lhs.clone(), rhs.clone());
 
         while !b.is_zero() {
             let (_, rem) = a.euclidean_div(&b);
@@ -504,6 +507,11 @@ impl<const L: usize> WideF2x<L> {
         }
 
         a
+    }
+
+    // TODO: we don't have a non-widening multiplication
+    pub fn xgcd(lhs: &Self, rhs: &Self) -> (Self, Self, Self) {
+        todo!("first implement non-widening multiplication");
     }
 
     pub fn truncate(&self) -> F2x<L> {
@@ -801,7 +809,7 @@ mod tests {
 
     /// Randomly generated GCD from Python
     #[test]
-    fn test_f2x_gcd() {
+    fn random_f2x_gcd() {
         assert_eq!(
             F2_128::gcd(
                 &F2_128::from_limbs([
@@ -921,6 +929,189 @@ mod tests {
             ),
             F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
         );
+    }
+
+    #[test]
+    fn random_f2x_xgcd() {
+        let lhs = F2_128::from_limbs([
+            0x4746, 0x4DE9, 0xB867, 0x3F15, 0xDB58, 0xBFE4, 0xAE50, 0x9F35,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0xCD9E, 0x5830, 0x5EDB, 0x11F2, 0x9232, 0x419A, 0xB9E3, 0xA334,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x0DA5, 0x30C5, 0x52A7, 0x9083, 0x5354, 0x1B1F, 0xCA7C, 0xE235,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x04A4, 0xF401, 0x528E, 0xB496, 0xE555, 0x39AE, 0xB7A9, 0xE274,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0xDC28, 0x1585, 0x36FC, 0x9CE3, 0xE075, 0x7C5B, 0x0B0F, 0xEE28,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x8456, 0xF362, 0x3C86, 0x0D2F, 0x2A71, 0x2C57, 0x42EA, 0xBEF3,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x7760, 0xB406, 0xE230, 0x3311, 0x2E48, 0x971D, 0xE703, 0xCA4E,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x44E5, 0xDF01, 0xAFCB, 0x32F7, 0x610A, 0x6AA8, 0x1E8E, 0xA15F,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x0A0B, 0xA3AD, 0x178E, 0x4E43, 0xA028, 0x0178, 0xE8C1, 0xBA6E,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0xC3FA, 0x7569, 0x4509, 0xC88A, 0xA16B, 0x0121, 0x2A00, 0xD254,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x13A6, 0xE946, 0xFF13, 0x6807, 0x329C, 0x936D, 0xDEF4, 0x8027,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x01A1, 0x86C5, 0x07BB, 0x927E, 0x9837, 0x8143, 0xB62B, 0xAFFA,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0xAE40, 0x001C, 0x1F77, 0x6239, 0x1B8D, 0xDDBD, 0x4010, 0x571B,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x3F65, 0x16D7, 0x80C3, 0x4D2F, 0xE702, 0xA2AC, 0xF894, 0xF8B2,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x0ECE, 0xC430, 0xA308, 0x7B8A, 0x61B4, 0x9431, 0xE44F, 0x9D61,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x2C21, 0xF0E7, 0xEA61, 0x023D, 0x05AC, 0x45D7, 0x6AB9, 0x09FC,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0003,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x70C3, 0x2E36, 0xC1F8, 0x0858, 0x9668, 0x4B8B, 0x7DC7, 0x8C0B,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x8B91, 0x441A, 0x1C82, 0x83F5, 0x0BC4, 0x499A, 0x9BAE, 0xEC2E,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x1AB7, 0x6742, 0x08B8, 0x4488, 0x159F, 0xC45A, 0x8A1F, 0x07BF,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x080E, 0xE174, 0xA328, 0x94B8, 0x8266, 0x4093, 0xC73B, 0x9BD9,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0007,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x94DF, 0xEE78, 0x4A39, 0x9065, 0x4ECE, 0xE5CC, 0x57D4, 0x5C90,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0xE79F, 0xE6A0, 0xAA2C, 0x5817, 0x68A9, 0x2F9F, 0x5660, 0x73EF,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x277D, 0x4C20, 0x7788, 0xBB9F, 0x5912, 0x8E66, 0xD790, 0x5957,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x34F2, 0xE96F, 0x5AD0, 0x5CC2, 0x37FB, 0xFA75, 0xFE74, 0x1F43,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x95DF, 0x4A39, 0x5AEA, 0xD3E9, 0x3B31, 0xCF9E, 0xA082, 0x0C02,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x60F3, 0x0B74, 0xB7AB, 0x8B48, 0x9D1F, 0x693B, 0xEFE8, 0xAFAC,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x1A1D, 0xBED7, 0x7BD9, 0x99BE, 0x5491, 0x182E, 0x7AB1, 0x3DF1,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x223E, 0x1D1E, 0x8229, 0xF29F, 0xF020, 0x2121, 0x2CEB, 0x1B68,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0xB2AC, 0x5425, 0xD230, 0x1A5B, 0x847A, 0xF133, 0x37BD, 0xC23B,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x5FD9, 0xF185, 0x1193, 0x6CD9, 0x0277, 0xEDAA, 0xD520, 0xCDBE,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x31CA, 0x7C63, 0x8B6E, 0x9028, 0xF895, 0x9009, 0xEA7D, 0xDB1D,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x6784, 0x1600, 0x6CD1, 0xDC98, 0x9808, 0x1058, 0x18C9, 0x7801,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x4253, 0x5575, 0x05C3, 0x2E2F, 0x47BB, 0xDD26, 0x156C, 0x9397,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x65E3, 0xA49E, 0x4049, 0xA7E7, 0xA96D, 0xC55C, 0xB7F2, 0x975F,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x01D3, 0x574C, 0xE524, 0x0E33, 0xA6C1, 0xB763, 0x65BD, 0xCD90,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x0176, 0xAB05, 0x0265, 0x4A3F, 0x6D58, 0xEF03, 0xA981, 0xE445,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0013,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x2E46, 0x1AB1, 0x8719, 0xB670, 0x49D4, 0x3EE3, 0xD927, 0x019E,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x3FA7, 0xAA63, 0xE426, 0x84EA, 0x03BB, 0xB6F5, 0x8E43, 0xF797,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x1F46, 0xF302, 0x24E0, 0x27EA, 0xFADB, 0x5FEA, 0x37B8, 0xA278,
+        ]);
+        let expected_t = F2_128::from_limbs([
+            0x17DD, 0x9394, 0xD239, 0x14F8, 0x0868, 0xD45D, 0x9347, 0x217B,
+        ]);
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ]);
+        let (s, t, divisor) = F2_128::xgcd(&lhs, &rhs);
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
     }
 
     #[test]
