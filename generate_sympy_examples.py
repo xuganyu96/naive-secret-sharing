@@ -196,8 +196,72 @@ def generate_f2x_gcd_test_case():
     )
 
 
+def generate_widef2x_gcd_test_case():
+    """Sample two random polynomials and compute their GCD"""
+    poly1 = sample_polynomial(Symbol("x"), 255, 2)
+    poly2 = sample_polynomial(Symbol("x"), 255, 2)
+    divisor = sympy_gcd(poly1, poly2)
+    assert (poly1 % divisor == 0) and (poly2 % divisor == 0), "Sympy GCD is incorrect"
+
+    nlimbs = 256 // 16
+    poly1_limbs = convert_to_limbs(hex_encode_coeffs(poly1, 256), 16)
+    poly1_high_limbs, poly1_low_limbs = (
+        poly1_limbs[: nlimbs // 2],
+        poly1_limbs[nlimbs // 2 :],
+    )
+    poly1_high_str, poly1_low_str = ", ".join(poly1_high_limbs), ", ".join(
+        poly1_low_limbs
+    )
+    poly2_limbs = convert_to_limbs(hex_encode_coeffs(poly2, 256), 16)
+    poly2_high_limbs, poly2_low_limbs = (
+        poly2_limbs[: nlimbs // 2],
+        poly2_limbs[nlimbs // 2 :],
+    )
+    poly2_high_str, poly2_low_str = ", ".join(poly2_high_limbs), ", ".join(
+        poly2_low_limbs
+    )
+    divisor_limbs = convert_to_limbs(hex_encode_coeffs(divisor, 256), 16)
+    divisor_high_limbs, divisor_low_limbs = (
+        divisor_limbs[: nlimbs // 2],
+        divisor_limbs[nlimbs // 2 :],
+    )
+    divisor_high_str, divisor_low_str = ", ".join(divisor_high_limbs), ", ".join(
+        divisor_low_limbs
+    )
+
+    print(
+        f"""
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                {poly1_high_str}
+            ]),
+            F2x::<8>::from_limbs([
+                {poly1_low_str}
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                {poly2_high_str}
+            ]),
+            F2x::<8>::from_limbs([
+                {poly2_low_str}
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                {divisor_high_str}
+            ]),
+            F2x::<8>::from_limbs([
+                {divisor_low_str}
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+"""
+    )
+
+
 if __name__ == "__main__":
     # generate_extfield_widening_mul(128)
     # generate_short_euclidean_division(128)
     # random_gf2_128_modmul()
-    generate_f2x_gcd_test_case()
+    generate_widef2x_gcd_test_case()

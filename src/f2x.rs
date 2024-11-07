@@ -486,6 +486,26 @@ impl<const L: usize> WideF2x<L> {
         return (quot, rem);
     }
 
+    /// Use [Euclid's algorithm](https://en.wikipedia.org/wiki/Euclidean_algorithm) to compute the
+    /// highest-degree polynomial that divides both lhs and rhs.
+    pub fn gcd(lhs: &Self, rhs: &Self) -> Self {
+        let (mut a, mut b): (Self, Self) = if lhs.degree() < rhs.degree() {
+            (rhs.clone(), lhs.clone())
+        } else {
+            (lhs.clone(), rhs.clone())
+        };
+        if b.is_zero() {
+            return a;
+        }
+
+        while !b.is_zero() {
+            let (_, rem) = a.euclidean_div(&b);
+            (a, b) = (b, rem);
+        }
+
+        a
+    }
+
     pub fn truncate(&self) -> F2x<L> {
         if !self.high.is_zero() {
             panic!("high-order limbs are not zeros");
@@ -901,5 +921,268 @@ mod tests {
             ),
             F2_128::from_limbs([0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001])
         );
+    }
+
+    #[test]
+    fn random_widef2x_gcd() {
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xA84F, 0xED17, 0xFF3E, 0x9B60, 0x2EA8, 0x3480, 0xC4E6, 0x6981,
+            ]),
+            F2x::<8>::from_limbs([
+                0x8174, 0x57C6, 0x54ED, 0x250C, 0xC8A6, 0x3D3B, 0x6F64, 0x7A27,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x7139, 0x9134, 0x3CAA, 0x16DD, 0xD47E, 0x83CF, 0x7006, 0xF923,
+            ]),
+            F2x::<8>::from_limbs([
+                0x203A, 0xEF7E, 0x0745, 0x6DC9, 0x003B, 0xF271, 0xF403, 0xCF9F,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xEC10, 0x1284, 0x0415, 0x8B0E, 0xD842, 0x5F1C, 0xCCC3, 0x2903,
+            ]),
+            F2x::<8>::from_limbs([
+                0xBC0E, 0xFBFC, 0x0430, 0x7C73, 0x40AB, 0x5717, 0x3F59, 0xCBA5,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x5C85, 0xE20D, 0x1371, 0x9C06, 0x02C2, 0x7CD7, 0xCF41, 0xD5BB,
+            ]),
+            F2x::<8>::from_limbs([
+                0xEFC2, 0x1B46, 0xCBCD, 0x1887, 0xCC3E, 0x08D7, 0xBC57, 0x429D,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xACC6, 0x7E82, 0x1082, 0x4A1A, 0xE365, 0x2B0B, 0x5092, 0x64C8,
+            ]),
+            F2x::<8>::from_limbs([
+                0x9A5D, 0x8B28, 0xAFC0, 0x78A5, 0x995A, 0x724B, 0x73D2, 0xC1C0,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x9BDF, 0x3946, 0x97B7, 0x9D84, 0x9DBF, 0x79C9, 0x9317, 0x25B9,
+            ]),
+            F2x::<8>::from_limbs([
+                0xC8CB, 0x2F7F, 0xD8D6, 0xFF02, 0xD357, 0x83D6, 0x2A59, 0xCBED,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x2A28, 0x37B7, 0xB61E, 0x8DE7, 0x53C3, 0xAA1F, 0x293B, 0xE8AA,
+            ]),
+            F2x::<8>::from_limbs([
+                0xBA21, 0x04EE, 0x9E59, 0x90EA, 0x0DB1, 0xA340, 0x6193, 0xD7CD,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xE463, 0x29E4, 0xCF47, 0x6F8F, 0x1C3F, 0x06C2, 0x133B, 0xB016,
+            ]),
+            F2x::<8>::from_limbs([
+                0x2AF6, 0xD239, 0xC37D, 0xC04F, 0x12BB, 0x7879, 0x1DBA, 0x1D84,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0003,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x15AB, 0x501E, 0xB2A5, 0x382C, 0x98A4, 0x42F9, 0xC3BC, 0x9003,
+            ]),
+            F2x::<8>::from_limbs([
+                0x1749, 0x6784, 0xE98B, 0x35A8, 0xC618, 0x1915, 0x625C, 0x8ACF,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xBB17, 0x7D58, 0x7663, 0x6B7B, 0x05EE, 0x0271, 0x3316, 0x0462,
+            ]),
+            F2x::<8>::from_limbs([
+                0x9E0A, 0x2111, 0xA529, 0x1CE7, 0x4E60, 0x8467, 0xBA0C, 0x01AE,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x58B4, 0x0CF0, 0x4912, 0x6384, 0xFAC8, 0x9F45, 0x6DA5, 0x7FF5,
+            ]),
+            F2x::<8>::from_limbs([
+                0x88B5, 0xE58C, 0x412A, 0x54B3, 0xE38D, 0xF939, 0xBAEE, 0x9242,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0AAD, 0xBF23, 0x3AAB, 0x5B91, 0x27A5, 0xE9CD, 0xD58C, 0x4D15,
+            ]),
+            F2x::<8>::from_limbs([
+                0xE926, 0xFCF8, 0x7674, 0x2312, 0xDCA7, 0xE614, 0x1191, 0x4412,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x8A8D, 0x0230, 0x0EE1, 0x50AB, 0x474C, 0x9828, 0xF8A8, 0x41AE,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0C45, 0x2A82, 0x9E81, 0x0FD4, 0x98D9, 0x8CF1, 0x9889, 0xD500,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xE0BB, 0x71DD, 0xEB35, 0xD698, 0xEF9D, 0x86DB, 0xABAC, 0x8FCF,
+            ]),
+            F2x::<8>::from_limbs([
+                0x6C0D, 0x748C, 0x6EE4, 0x64C8, 0xE6D1, 0xD8D8, 0xC366, 0x3F66,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x1AA4, 0x210A, 0xA6E5, 0x8D2E, 0x33B9, 0x803D, 0x1E66, 0x033D,
+            ]),
+            F2x::<8>::from_limbs([
+                0x7413, 0x3B1E, 0x288D, 0x644C, 0x305F, 0xFA3D, 0x72BD, 0x5066,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xE651, 0x233D, 0xF98D, 0xDDDB, 0x718F, 0x4E9B, 0x0BFC, 0x00CC,
+            ]),
+            F2x::<8>::from_limbs([
+                0xFBEB, 0x8F7B, 0x4B61, 0x16EF, 0x5585, 0x195B, 0xA4B2, 0x5693,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0003,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xCDDF, 0x1FC0, 0xA77B, 0x92ED, 0x195C, 0xBD3E, 0x1A50, 0x715F,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0D74, 0x3B00, 0x6B22, 0x4722, 0x92EE, 0xA275, 0x08BD, 0xD36B,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xAB9D, 0x6D37, 0xC731, 0xDD1F, 0x6BEC, 0x0DD6, 0xC930, 0x8821,
+            ]),
+            F2x::<8>::from_limbs([
+                0x858E, 0x9FA6, 0x1BE4, 0x231D, 0xE4C3, 0x10E8, 0xF6AE, 0x71BC,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+
+        let lhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0xD88A, 0xF734, 0x5A39, 0xA5F3, 0x7F9C, 0xB4D1, 0x06BF, 0x452A,
+            ]),
+            F2x::<8>::from_limbs([
+                0xE550, 0xC758, 0x63DC, 0x431F, 0x0D26, 0xF96B, 0x5C4B, 0xC30E,
+            ]),
+        );
+        let rhs = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x1D9D, 0x91C4, 0x8EA4, 0xBBDA, 0x8EF7, 0x9270, 0x50D5, 0x6712,
+            ]),
+            F2x::<8>::from_limbs([
+                0xA228, 0xBD5A, 0x6662, 0x28F3, 0x6322, 0x9D24, 0x4E86, 0x34C6,
+            ]),
+        );
+        let gcd = WideF2x::<8>::from_f2x(
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+            ]),
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+            ]),
+        );
+        assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
     }
 }
