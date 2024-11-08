@@ -63,6 +63,11 @@ impl<const L: usize> F2x<L> {
     pub const ONE: Self = Self::one();
     pub const BITS: usize = (Word::BITS as usize) * L;
 
+    /// Clone into a wide polynomial of the same value
+    pub fn widen(&self) -> WideF2x<L> {
+        WideF2x::from_f2x(Self::ZERO, self.clone())
+    }
+
     pub const fn from_limbs(limbs: [Word; L]) -> Self {
         Self { limbs }
     }
@@ -178,16 +183,19 @@ impl<const L: usize> F2x<L> {
         WideF2x::<L>::from_f2x(high, low)
     }
 
-    /// School book polynomial multiplication. Return None upon overflow.
-    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
+    /// School book polynomial multiplication.
+    /// The second returned value will be true if there is overflow; overflowing values are
+    /// discarded.
+    pub fn overflowing_mul(&self, rhs: &Self) -> (Self, bool) {
         let mut prod = Self::ZERO;
+        let mut overflowed = false;
         for i in 0..L {
             for j in 0..L {
                 let (high_limb, low_limb) =
                     widening_clmul(self.limbs[L - i - 1], rhs.limbs[L - j - 1]);
                 if (low_limb != 0 && i + j >= L) || (high_limb != 0 && i + j + 1 >= L) {
                     // Overflowed
-                    return None;
+                    overflowed = true;
                 }
                 if i + j < L {
                     prod.limbs[L - (i + j) - 1] ^= low_limb;
@@ -198,7 +206,24 @@ impl<const L: usize> F2x<L> {
             }
         }
 
-        Some(prod)
+        (prod, overflowed)
+    }
+
+    /// School book polynomial multiplication. Return None upon overflow.
+    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
+        let (prod, overflowed) = self.overflowing_mul(&rhs);
+
+        if overflowed {
+            None
+        } else {
+            Some(prod)
+        }
+    }
+
+    /// School book polynomial multiplication. Panic on overflow
+    pub fn mul(&self, rhs: &Self) -> Self {
+        self.checked_mul(&rhs)
+            .expect("attempt to multiply with overflow")
     }
 
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
@@ -331,16 +356,18 @@ impl<const L: usize> F2x<L> {
         while !r.is_zero() {
             let (quot, rem) = rr.euclidean_div(&r);
             (rr, r) = (r, rem);
-            (ss, s) = (s, ss.sub(&quot.widening_mul(&s).truncate()));
-            (tt, t) = (t, tt.sub(&quot.widening_mul(&t).truncate()));
+            (ss, s) = (s, ss.sub(&quot.mul(&s)));
+            (tt, t) = (t, tt.sub(&quot.mul(&t)));
         }
 
         (ss, tt, rr)
     }
+
+    // NEXT: invert, though maybe this is best left implemented in GF2_128 instead of here
 }
 
 /// Wide F2[x] is useful for performing reduction after widening multiplication
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct WideF2x<const L: usize> {
     /// The higher power terms
     high: F2x<L>,
@@ -417,6 +444,52 @@ impl<const L: usize> WideF2x<L> {
 
     pub fn sub(&self, rhs: &Self) -> Self {
         self.add(rhs)
+    }
+
+    /// School book polynomial multiplication
+    /// The second returned value will be true if there is overflow; overflowing limbs will be
+    /// discarded.
+    pub fn overflowing_mul(&self, rhs: &Self) -> (Self, bool) {
+        let mut prod = Self::ZERO;
+        let mut overflowed = false;
+
+        for i in 0..(2 * L) {
+            for j in 0..(2 * L) {
+                let (high_limb, low_limb) = widening_clmul(
+                    *self.get_limb(2 * L - i - 1).unwrap(),
+                    *rhs.get_limb(2 * L - j - 1).unwrap(),
+                );
+                if (low_limb != 0 && i + j >= 2 * L) || (high_limb != 0 && i + j + 1 >= 2 * L) {
+                    // Overflowed
+                    overflowed = true;
+                }
+                if i + j < 2 * L {
+                    *prod.get_mut_limb(2 * L - (i + j) - 1).unwrap() ^= low_limb;
+                }
+                if i + j + 1 < 2 * L {
+                    *prod.get_mut_limb(2 * L - (i + j + 1) - 1).unwrap() ^= high_limb;
+                }
+            }
+        }
+
+        (prod, overflowed)
+    }
+
+    /// School book polynomial multiplication. Return None upon overflow.
+    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
+        let (prod, overflowed) = self.overflowing_mul(&rhs);
+
+        if overflowed {
+            None
+        } else {
+            Some(prod)
+        }
+    }
+
+    /// School book polynomial multiplication. Panic on overflow
+    pub fn mul(&self, rhs: &Self) -> Self {
+        self.checked_mul(&rhs)
+            .expect("attempt to multiply with overflow")
     }
 
     /// Left shift by the specified amount. Panic if rhs is greater than or equal to Self::BITS
@@ -532,11 +605,24 @@ impl<const L: usize> WideF2x<L> {
         a
     }
 
-    // TODO: we don't have a non-widening multiplication
+    /// Use [Extended Euclid's algorithm](https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm)
+    /// to compute (s, t, d) such that s * lhs + t * rhs = d and d is the GCD between lhs and rhs
     pub fn xgcd(lhs: &Self, rhs: &Self) -> (Self, Self, Self) {
-        todo!("first implement non-widening multiplication");
+        let (mut rr, mut r): (Self, Self) = (lhs.clone(), rhs.clone());
+        let (mut ss, mut s): (Self, Self) = (Self::ONE, Self::ZERO);
+        let (mut tt, mut t): (Self, Self) = (Self::ZERO, Self::ONE);
+
+        while !r.is_zero() {
+            let (quot, rem) = rr.euclidean_div(&r);
+            (rr, r) = (r, rem);
+            (ss, s) = (s, ss.sub(&quot.mul(&s)));
+            (tt, t) = (t, tt.sub(&quot.mul(&t)));
+        }
+
+        (ss, tt, rr)
     }
 
+    /// Return the low-order limbs if high-order limbs are all zeros; otherwise panic
     pub fn truncate(&self) -> F2x<L> {
         if !self.high.is_zero() {
             panic!("high-order limbs are not zeros");
@@ -626,14 +712,14 @@ mod tests {
     }
 
     #[test]
-    fn f2x_checked_mul() {
+    fn f2x_overflowing_mul() {
         let lhs = F2_128::from_limbs([
             0x0001, 0x0000, 0x0000, 0x0000, 0x06B1, 0xE8EB, 0x32EF, 0x6AAA,
         ]);
         let rhs = F2_128::from_limbs([
             0x0001, 0x0000, 0x0000, 0x0000, 0x0186, 0xA0FD, 0x9642, 0x4426,
         ]);
-        assert!(lhs.checked_mul(&rhs).is_none());
+        assert!(lhs.overflowing_mul(&rhs).1);
 
         let lhs = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0x06B1, 0xE8EB, 0x32EF, 0x6AAA,
@@ -644,7 +730,7 @@ mod tests {
         let prod = F2_128::from_limbs([
             0x0005, 0xFD34, 0x46C8, 0xF72E, 0xCE4C, 0x24DA, 0xB75A, 0x02BC,
         ]);
-        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
 
         let lhs = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0x525A, 0x9736, 0x2694, 0x5DE5,
@@ -655,7 +741,7 @@ mod tests {
         let prod = F2_128::from_limbs([
             0x0606, 0x3225, 0x5465, 0x0782, 0x70A6, 0x76F4, 0x2208, 0xCC74,
         ]);
-        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
 
         let lhs = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0xD2B8, 0xB8A6, 0x991B, 0x535A,
@@ -666,7 +752,7 @@ mod tests {
         let prod = F2_128::from_limbs([
             0x44F5, 0x1623, 0xF34C, 0xA777, 0x0929, 0x5A9E, 0xFF54, 0x9430,
         ]);
-        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
 
         let lhs = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0xF848, 0x5267, 0x8733, 0xC042,
@@ -677,7 +763,7 @@ mod tests {
         let prod = F2_128::from_limbs([
             0x2501, 0x9EEF, 0x6C78, 0x03EF, 0x1E6E, 0xB1FC, 0xF33B, 0x4B08,
         ]);
-        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
 
         let lhs = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0xFD5B, 0x6635, 0x077F, 0x52AD,
@@ -688,7 +774,7 @@ mod tests {
         let prod = F2_128::from_limbs([
             0x47F8, 0xF77D, 0x796D, 0xA04F, 0x7E0F, 0x87BA, 0x5374, 0xA67E,
         ]);
-        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
     }
 
     #[test]
@@ -815,6 +901,45 @@ mod tests {
         assert_eq!(lhs.degree(), Degree::NonNegative(0));
         let lhs = WideF2x::from_f2x(F2_128::ZERO, F2_128::ZERO);
         assert_eq!(lhs.degree(), Degree::NegativeInfinity);
+    }
+
+    #[test]
+    fn widef2x_overflowing_mul() {
+        let lhs = WideF2x::from_f2x(
+            F2_128::ZERO,
+            F2_128::from_limbs([
+                0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
+            ]),
+        );
+        let rhs = WideF2x::from_f2x(
+            F2_128::ZERO,
+            F2_128::from_limbs([
+                0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
+            ]),
+        );
+        let prod = WideF2x::from_f2x(
+            F2_128::from_limbs([
+                0x1EAB, 0x66E7, 0x4160, 0x869E, 0xA3A7, 0x038E, 0x03AB, 0x25BF,
+            ]),
+            F2_128::from_limbs([
+                0x77C9, 0xE332, 0x2107, 0x2707, 0x8AFD, 0x8E14, 0xE779, 0x45CE,
+            ]),
+        );
+        assert_eq!(lhs.overflowing_mul(&rhs), (prod, false));
+
+        let lhs = WideF2x::from_f2x(
+            F2_128::ONE,
+            F2_128::from_limbs([
+                0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
+            ]),
+        );
+        let rhs = WideF2x::from_f2x(
+            F2_128::ONE,
+            F2_128::from_limbs([
+                0x8370, 0x7DA9, 0x108D, 0xF5B7, 0x30C9, 0xAEB8, 0x719A, 0xEDB5,
+            ]),
+        );
+        assert!(lhs.overflowing_mul(&rhs).1);
     }
 
     #[test]
@@ -1464,5 +1589,50 @@ mod tests {
             ]),
         );
         assert_eq!(WideF2x::<8>::gcd(&lhs, &rhs), gcd);
+    }
+
+    #[test]
+    fn widef2x_xgcd() {
+        let lhs = F2_128::from_limbs([
+            0x2E46, 0x1AB1, 0x8719, 0xB670, 0x49D4, 0x3EE3, 0xD927, 0x019E,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x3FA7, 0xAA63, 0xE426, 0x84EA, 0x03BB, 0xB6F5, 0x8E43, 0xF797,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x1F46, 0xF302, 0x24E0, 0x27EA, 0xFADB, 0x5FEA, 0x37B8, 0xA278,
+        ])
+        .widen();
+        let expected_t = F2_128::from_limbs([
+            0x17DD, 0x9394, 0xD239, 0x14F8, 0x0868, 0xD45D, 0x9347, 0x217B,
+        ])
+        .widen();
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+        ])
+        .widen();
+        let (s, t, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs.widen());
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        let lhs = F2_128::from_limbs([
+            0x95DF, 0x4A39, 0x5AEA, 0xD3E9, 0x3B31, 0xCF9E, 0xA082, 0x0C02,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x60F3, 0x0B74, 0xB7AB, 0x8B48, 0x9D1F, 0x693B, 0xEFE8, 0xAFAC,
+        ]);
+        let expected_s = F2_128::from_limbs([
+            0x1A1D, 0xBED7, 0x7BD9, 0x99BE, 0x5491, 0x182E, 0x7AB1, 0x3DF1,
+        ])
+        .widen();
+        let expected_t = F2_128::from_limbs([
+            0x223E, 0x1D1E, 0x8229, 0xF29F, 0xF020, 0x2121, 0x2CEB, 0x1B68,
+        ])
+        .widen();
+        let expected_d = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
+        ])
+        .widen();
+        let (s, t, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs.widen());
+        assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
     }
 }
