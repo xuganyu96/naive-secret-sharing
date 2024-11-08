@@ -81,6 +81,33 @@ def generate_extfield_widening_mul(gf_bits: int):
     assert_eq!(lhs.widening_gf_mul(&rhs), prod);"""
     )
 
+def random_f2x_checked_mul(gf_bits: int):
+    lhs = sample_polynomial(Symbol("x"), gf_bits // 2 - 1, 2)
+    rhs = sample_polynomial(Symbol("x"), gf_bits // 2 - 1, 2)
+    prod = lhs * rhs
+
+    lhs_limbs = convert_to_limbs(hex_encode_coeffs(lhs, gf_bits), 16)
+    lhs_str = ", ".join(lhs_limbs)
+    rhs_limbs = convert_to_limbs(hex_encode_coeffs(rhs, gf_bits), 16)
+    rhs_str = ", ".join(rhs_limbs)
+    prod_limbs = convert_to_limbs(hex_encode_coeffs(prod, gf_bits), 16)
+    prod_str = ", ".join(prod_limbs)
+
+    print(
+        f"""
+        let lhs = F2_128::from_limbs([
+            {lhs_str}
+        ]);
+        let rhs = F2_128::from_limbs([
+            {rhs_str}
+        ]);
+        let prod = F2_128::from_limbs([
+            {prod_str}
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+    """
+    )
+
 
 def generate_short_euclidean_division(gf_bits: int):
     lhs = sample_polynomial(Symbol("x"), gf_bits - 1, 2)
@@ -307,5 +334,5 @@ if __name__ == "__main__":
     # generate_short_euclidean_division(128)
     # random_gf2_128_modmul()
     # generate_widef2x_gcd_test_case()
-    for _ in range(10):
-        random_f2x_xgcd_test_case()
+    # random_f2x_xgcd_test_case()
+    [random_f2x_checked_mul(128) for _ in range(5)]

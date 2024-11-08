@@ -178,6 +178,29 @@ impl<const L: usize> F2x<L> {
         WideF2x::<L>::from_f2x(high, low)
     }
 
+    /// School book polynomial multiplication. Return None upon overflow.
+    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
+        let mut prod = Self::ZERO;
+        for i in 0..L {
+            for j in 0..L {
+                let (high_limb, low_limb) =
+                    widening_clmul(self.limbs[L - i - 1], rhs.limbs[L - j - 1]);
+                if (low_limb != 0 && i + j >= L) || (high_limb != 0 && i + j + 1 >= L) {
+                    // Overflowed
+                    return None;
+                }
+                if i + j < L {
+                    prod.limbs[L - (i + j) - 1] ^= low_limb;
+                }
+                if i + j + 1 < L {
+                    prod.limbs[L - (i + j + 1) - 1] ^= high_limb;
+                }
+            }
+        }
+
+        Some(prod)
+    }
+
     /// Attempt to left shift (e.g. 0xFFFF.overflowing_shl(4) = 0xFFF0)
     /// If the shift will cause overflow, this method will panic. This is consistent with integer
     /// arithmetics
@@ -530,7 +553,7 @@ mod tests {
     type F2_128 = F2x<8>;
 
     #[test]
-    fn test_widening_clmul() {
+    fn word_widening_clmul() {
         assert_eq!(widening_clmul(15, 15), (0, 0b1010101));
         assert_eq!(widening_clmul(0xFFFF, 0xFFFF), (0x5555, 0x5555));
         assert_eq!(widening_clmul(0xE223, 0x672F), (0x267B, 0xB291));
@@ -540,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extfield_widening_mul() {
+    fn f2x_widening_mul() {
         assert_eq!(
             F2_128::ZERO.not().widening_mul(&F2_128::ZERO),
             WideF2x::from_f2x(F2_128::ZERO, F2_128::ZERO)
@@ -603,7 +626,73 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_leading_zeros() {
+    fn f2x_checked_mul() {
+        let lhs = F2_128::from_limbs([
+            0x0001, 0x0000, 0x0000, 0x0000, 0x06B1, 0xE8EB, 0x32EF, 0x6AAA,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0001, 0x0000, 0x0000, 0x0000, 0x0186, 0xA0FD, 0x9642, 0x4426,
+        ]);
+        assert!(lhs.checked_mul(&rhs).is_none());
+
+        let lhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x06B1, 0xE8EB, 0x32EF, 0x6AAA,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x0186, 0xA0FD, 0x9642, 0x4426,
+        ]);
+        let prod = F2_128::from_limbs([
+            0x0005, 0xFD34, 0x46C8, 0xF72E, 0xCE4C, 0x24DA, 0xB75A, 0x02BC,
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+
+        let lhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x525A, 0x9736, 0x2694, 0x5DE5,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x1F37, 0x7287, 0x3F4B, 0xA664,
+        ]);
+        let prod = F2_128::from_limbs([
+            0x0606, 0x3225, 0x5465, 0x0782, 0x70A6, 0x76F4, 0x2208, 0xCC74,
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+
+        let lhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0xD2B8, 0xB8A6, 0x991B, 0x535A,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0xE421, 0x3447, 0x3878, 0xC838,
+        ]);
+        let prod = F2_128::from_limbs([
+            0x44F5, 0x1623, 0xF34C, 0xA777, 0x0929, 0x5A9E, 0xFF54, 0x9430,
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+
+        let lhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0xF848, 0x5267, 0x8733, 0xC042,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0x6C48, 0x5650, 0xA0CA, 0x8504,
+        ]);
+        let prod = F2_128::from_limbs([
+            0x2501, 0x9EEF, 0x6C78, 0x03EF, 0x1E6E, 0xB1FC, 0xF33B, 0x4B08,
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+
+        let lhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0xFD5B, 0x6635, 0x077F, 0x52AD,
+        ]);
+        let rhs = F2_128::from_limbs([
+            0x0000, 0x0000, 0x0000, 0x0000, 0xCA34, 0x8F3E, 0x59DE, 0x2856,
+        ]);
+        let prod = F2_128::from_limbs([
+            0x47F8, 0xF77D, 0x796D, 0xA04F, 0x7E0F, 0x87BA, 0x5374, 0xA67E,
+        ]);
+        assert_eq!(lhs.checked_mul(&rhs).unwrap(), prod);
+    }
+
+    #[test]
+    fn f2x_leading_zeros() {
         assert_eq!(F2_128::ZERO.leading_zeros(), 128);
         assert_eq!(F2_128::ONE.leading_zeros(), 127);
         assert_eq!(F2_128::ZERO.not().leading_zeros(), 0);
@@ -615,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_degree() {
+    fn f2x_degree() {
         assert_eq!(F2_128::ZERO.degree(), Degree::NegativeInfinity);
         assert_eq!(F2_128::ONE.degree(), Degree::NonNegative(0));
         assert_eq!(F2_128::ZERO.not().degree(), Degree::NonNegative(127));
@@ -627,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_shl() {
+    fn f2x_shl() {
         let expected_poly = F2_128::from_limbs([
             0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002,
         ]);
@@ -645,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_shr() {
+    fn f2x_shr() {
         assert_eq!(
             F2_128::from_limbs([0x0000, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,])
                 .shr(4),
@@ -659,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_euclidean_div() {
+    fn f2x_euclidean_div() {
         assert_eq!(
             F2_128::ZERO.euclidean_div(&F2_128::ONE),
             (F2_128::ZERO, F2_128::ZERO)
@@ -719,7 +808,7 @@ mod tests {
     }
 
     #[test]
-    fn test_widef2x_degree() {
+    fn widef2x_degree() {
         let lhs = WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO);
         assert_eq!(lhs.degree(), Degree::NonNegative(128));
         let lhs = WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE);
@@ -729,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn test_widef2x_shl() {
+    fn widef2x_shl() {
         assert_eq!(
             WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)).shl(1),
             WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO)
@@ -737,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn test_widef2x_shr() {
+    fn widef2x_shr() {
         assert_eq!(
             WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO).shr(1),
             WideF2x::from_f2x(F2_128::ZERO, F2_128::ONE.shl(127)),
@@ -745,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn test_widef2x_euclidean_div() {
+    fn widef2x_euclidean_div() {
         let lhs = F2_128::from_limbs([
             0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
         ])
@@ -769,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f2x_modmul() {
+    fn f2x_modmul() {
         let lhs = F2_128::from_limbs([
             0x1A02, 0xC5D5, 0x3035, 0x2794, 0xBAE0, 0x9A71, 0x0B95, 0xD81A,
         ]);
