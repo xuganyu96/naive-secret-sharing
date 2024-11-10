@@ -1,4 +1,4 @@
-from sympy import Symbol, Poly, gcd as sympy_gcd
+from sympy import Symbol, Poly, gcd as sympy_gcd, gcdex as sympy_gcdex
 import random
 import math
 
@@ -81,6 +81,7 @@ def generate_extfield_widening_mul(gf_bits: int):
     assert_eq!(lhs.widening_gf_mul(&rhs), prod);"""
     )
 
+
 def random_f2x_checked_mul(gf_bits: int):
     lhs = sample_polynomial(Symbol("x"), gf_bits // 2 - 1, 2)
     rhs = sample_polynomial(Symbol("x"), gf_bits // 2 - 1, 2)
@@ -146,7 +147,7 @@ def random_gf2_128_modmul():
     gf_bits, wordsize = 128, 16
     lhs = sample_polynomial(x, gf_bits - 1, 2)
     rhs = sample_polynomial(x, gf_bits - 1, 2)
-    gf2_128_modulus = Poly(x**128 + x**7 + x**2 + 1, modulus=2)
+    gf2_128_modulus = Poly(x**128 + x**77 + x**35 + x**11 + 1, modulus=2)
     lhs_limbs = convert_to_limbs(hex_encode_coeffs(lhs, gf_bits), wordsize)
     lhs_str = ", ".join(lhs_limbs)
     rhs_limbs = convert_to_limbs(hex_encode_coeffs(rhs, gf_bits), wordsize)
@@ -193,6 +194,33 @@ def random_gf2_128_modmul():
     )
 
 
+def random_gf2_128_modinv():
+    x = Symbol("x")
+    gf_bits, wordsize = 128, 16
+    lhs = sample_polynomial(x, gf_bits - 1, 2)
+    gf2_128_modulus = Poly(x**128 + x**77 + x**35 + x**11 + 1, modulus=2)
+
+    inverse, _, _ = sympy_gcdex(lhs, gf2_128_modulus)
+    assert lhs * inverse % gf2_128_modulus == 1, "Sympy Extended GCD is incorrect"
+
+    rhs = inverse
+    lhs_limbs = convert_to_limbs(hex_encode_coeffs(lhs, gf_bits), wordsize)
+    lhs_str = ", ".join(lhs_limbs)
+    rhs_limbs = convert_to_limbs(hex_encode_coeffs(rhs, gf_bits), wordsize)
+    rhs_str = ", ".join(rhs_limbs)
+
+    print(
+        f"""
+        let lhs = GF2_128::from_poly(F2x::<8>::from_limbs([
+            {lhs_str}
+        ]));
+        let rhs = GF2_128::from_poly(F2x::<8>::from_limbs([
+            {rhs_str}
+        ]));
+        assert_eq!(lhs.inv().unwrap(), rhs);"""
+    )
+
+
 def generate_f2x_gcd_test_case():
     """Sample two random polynomials and compute their GCD"""
     poly1 = sample_polynomial(Symbol("x"), 127, 2)
@@ -222,11 +250,13 @@ def generate_f2x_gcd_test_case():
         );"""
     )
 
+
 def random_f2x_xgcd_test_case():
     """Sample two random polynomials and compute their GCD"""
     poly1 = sample_polynomial(Symbol("x"), 127, 2)
     poly2 = sample_polynomial(Symbol("x"), 127, 2)
     from sympy import gcdex as sympy_xgcd
+
     (poly_s, poly_t, divisor) = sympy_xgcd(poly1, poly2)
     assert (poly1 % divisor == 0) and (poly2 % divisor == 0), "Sympy GCD is incorrect"
     assert poly_s * poly1 + poly_t * poly2 == divisor, "Sympy GCD is incorrect"
@@ -330,9 +360,11 @@ def generate_widef2x_gcd_test_case():
 
 
 if __name__ == "__main__":
+    n_tests = 5
     # generate_extfield_widening_mul(128)
     # generate_short_euclidean_division(128)
-    # random_gf2_128_modmul()
+    # [random_gf2_128_modmul() for _ in range(n_tests)]
+    [random_gf2_128_modinv() for _ in range(n_tests)]
     # generate_widef2x_gcd_test_case()
     # random_f2x_xgcd_test_case()
-    [random_f2x_checked_mul(128) for _ in range(5)]
+    # [random_f2x_checked_mul(128) for _ in range(5)]

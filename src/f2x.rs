@@ -1,4 +1,5 @@
 //! The polynomial ring over F2[x], efficiently encoded in an integer array
+use core::fmt::UpperHex;
 
 pub type Word = u16;
 
@@ -291,7 +292,7 @@ impl<const L: usize> F2x<L> {
     }
 
     /// Euclidean long division, will panic if rhs is zero
-    pub fn euclidean_div(&self, rhs: &Self) -> (Self, Self) {
+    pub fn div_rem(&self, rhs: &Self) -> (Self, Self) {
         if rhs.is_zero() {
             panic!("attempt to divide by zero");
         }
@@ -328,7 +329,7 @@ impl<const L: usize> F2x<L> {
             panic!("modulus degree is too high");
         }
         let prod = self.widening_mul(rhs);
-        let (_, rem) = prod.euclidean_div(modulus);
+        let (_, rem) = prod.div_rem(modulus);
 
         rem.truncate()
     }
@@ -339,7 +340,7 @@ impl<const L: usize> F2x<L> {
         let (mut a, mut b): (Self, Self) = (lhs.clone(), rhs.clone());
 
         while !b.is_zero() {
-            let (_, rem) = a.euclidean_div(&b);
+            let (_, rem) = a.div_rem(&b);
             (a, b) = (b, rem);
         }
 
@@ -349,12 +350,16 @@ impl<const L: usize> F2x<L> {
     /// Use [Extended Euclid's algorithm](https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm)
     /// to compute (s, t, d) such that s * lhs + t * rhs = d and d is the GCD between lhs and rhs
     pub fn xgcd(lhs: &Self, rhs: &Self) -> (Self, Self, Self) {
+        // NOTE: swapping lhs and rhs based on degree is unnecessary because if the degree of a is
+        // less than b, than the first iteration of the while loop will swap them automatically.
+        // This is helpful when implementing Extended Euclidean Algorithm because it makes sure
+        // that the output is not swapped
         let (mut rr, mut r): (Self, Self) = (lhs.clone(), rhs.clone());
         let (mut ss, mut s): (Self, Self) = (Self::ONE, Self::ZERO);
         let (mut tt, mut t): (Self, Self) = (Self::ZERO, Self::ONE);
 
         while !r.is_zero() {
-            let (quot, rem) = rr.euclidean_div(&r);
+            let (quot, rem) = rr.div_rem(&r);
             (rr, r) = (r, rem);
             (ss, s) = (s, ss.sub(&quot.mul(&s)));
             (tt, t) = (t, tt.sub(&quot.mul(&t)));
@@ -363,7 +368,29 @@ impl<const L: usize> F2x<L> {
         (ss, tt, rr)
     }
 
-    // NEXT: invert, though maybe this is best left implemented in GF2_128 instead of here
+    /// Find and return the inverse of self under the input modulus. Return None if self is not
+    /// invertible under the given modulus
+    pub fn modinv(&self, modulus: &WideF2x<L>) -> Option<Self> {
+        if self.is_zero() {
+            return None;
+        }
+        let (inverse, _, gcd) = WideF2x::<L>::xgcd(&self.widen(), modulus);
+
+        if gcd == WideF2x::<L>::ONE {
+            Some(inverse.truncate())
+        } else {
+            None
+        }
+    }
+}
+
+impl<const L: usize> UpperHex for F2x<L> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for limb in self.limbs {
+            write!(f, "{limb:04X}")?;
+        }
+        Ok(())
+    }
 }
 
 /// Wide F2[x] is useful for performing reduction after widening multiplication
@@ -377,9 +404,9 @@ pub struct WideF2x<const L: usize> {
 }
 
 impl<const L: usize> WideF2x<L> {
-    const BITS: usize = 2 * (Word::BITS as usize) * L;
-    const ZERO: Self = Self::zero();
-    const ONE: Self = Self::one();
+    pub const BITS: usize = 2 * (Word::BITS as usize) * L;
+    pub const ZERO: Self = Self::zero();
+    pub const ONE: Self = Self::one();
 
     pub const fn from_f2x(high: F2x<L>, low: F2x<L>) -> Self {
         Self { high, low }
@@ -567,7 +594,7 @@ impl<const L: usize> WideF2x<L> {
 
     /// Euclidean division, returning (quotient, remainder)
     /// Will panic if divisor is zero
-    pub fn euclidean_div(&self, rhs: &Self) -> (Self, Self) {
+    pub fn div_rem(&self, rhs: &Self) -> (Self, Self) {
         if rhs.is_zero() {
             panic!("attempt to divide by zero");
         }
@@ -575,16 +602,21 @@ impl<const L: usize> WideF2x<L> {
         let mut rem = self.clone();
 
         while rem.degree() >= rhs.degree() {
+            // println!("quot: {quot:X}");
+            // println!("rem: {rem:X}");
             // Both rem and rhs are guaranteed to be NonNegative
             let rem_degree: usize = match rem.degree() {
                 Degree::NonNegative(degree) => degree,
                 _ => panic!("Remainder is unexpectedly zero"),
             };
+            // println!("Remainder degree: {rem_degree}");
             let rhs_degree: usize = match rhs.degree() {
                 Degree::NonNegative(degree) => degree,
                 _ => panic!("Divisor is unexpectedly zero"),
             };
+            // println!("RHS degree: {rhs_degree}");
             let degree_diff = rem_degree - rhs_degree;
+            // println!("Need left shift by {degree_diff}");
             quot = quot.add(&Self::ONE.shl(degree_diff));
             rem = rem.sub(&rhs.shl(degree_diff));
         }
@@ -598,7 +630,7 @@ impl<const L: usize> WideF2x<L> {
         let (mut a, mut b): (Self, Self) = (lhs.clone(), rhs.clone());
 
         while !b.is_zero() {
-            let (_, rem) = a.euclidean_div(&b);
+            let (_, rem) = a.div_rem(&b);
             (a, b) = (b, rem);
         }
 
@@ -613,7 +645,7 @@ impl<const L: usize> WideF2x<L> {
         let (mut tt, mut t): (Self, Self) = (Self::ZERO, Self::ONE);
 
         while !r.is_zero() {
-            let (quot, rem) = rr.euclidean_div(&r);
+            let (quot, rem) = rr.div_rem(&r);
             (rr, r) = (r, rem);
             (ss, s) = (s, ss.sub(&quot.mul(&s)));
             (tt, t) = (t, tt.sub(&quot.mul(&t)));
@@ -628,6 +660,14 @@ impl<const L: usize> WideF2x<L> {
             panic!("high-order limbs are not zeros");
         }
         self.low.clone()
+    }
+}
+
+impl<const L: usize> UpperHex for WideF2x<L> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.high.fmt(f)?;
+        self.low.fmt(f)?;
+        Ok(())
     }
 }
 
@@ -834,24 +874,24 @@ mod tests {
     }
 
     #[test]
-    fn f2x_euclidean_div() {
+    fn f2x_div_rem() {
         assert_eq!(
-            F2_128::ZERO.euclidean_div(&F2_128::ONE),
+            F2_128::ZERO.div_rem(&F2_128::ONE),
             (F2_128::ZERO, F2_128::ZERO)
         );
         assert_eq!(
-            F2_128::ONE.euclidean_div(&F2_128::ONE),
+            F2_128::ONE.div_rem(&F2_128::ONE),
             (F2_128::ONE, F2_128::ZERO)
         );
         assert_eq!(
-            F2_128::ZERO.not().euclidean_div(&F2_128::ONE),
+            F2_128::ZERO.not().div_rem(&F2_128::ONE),
             (F2_128::ZERO.not(), F2_128::ZERO)
         );
 
         // Random test cases
         assert_eq!(
             F2_128::from_limbs([0x6F88, 0x6586, 0x5701, 0x2619, 0x964B, 0x2BCD, 0x0A5E, 0xAD0C])
-                .euclidean_div(&F2_128::from_limbs([
+                .div_rem(&F2_128::from_limbs([
                     0x1A02, 0x3B04, 0xCBB4, 0x3729, 0x5B9B, 0x4756, 0x35A0, 0x530B
                 ])),
             (
@@ -865,7 +905,7 @@ mod tests {
         );
         assert_eq!(
             F2_128::from_limbs([0x7AB3, 0xC7AC, 0x5F7B, 0xC3DC, 0x29AD, 0x137D, 0xAAD0, 0x7920])
-                .euclidean_div(&F2_128::from_limbs([
+                .div_rem(&F2_128::from_limbs([
                     0x4374, 0xFB75, 0x7A4D, 0x1BBC, 0xD872, 0xF253, 0x9CE8, 0x3F10
                 ])),
             (
@@ -879,7 +919,7 @@ mod tests {
         );
         assert_eq!(
             F2_128::from_limbs([0x3C84, 0xBCBF, 0xFAB8, 0xAC77, 0xDBC8, 0xA478, 0x1D91, 0xBC64])
-                .euclidean_div(&F2_128::from_limbs([
+                .div_rem(&F2_128::from_limbs([
                     0x0000, 0x0000, 0x0000, 0x0000, 0xF943, 0xE449, 0xAF54, 0xEA20
                 ])),
             (
@@ -891,6 +931,21 @@ mod tests {
                 ])
             )
         );
+    }
+
+    #[test]
+    fn f2x_modinv() {
+        // GF(2^12)'s modulus: x^12 + x^3 + 1
+        let modulus = F2x::<1>::from_limbs([0b0001_0000_0000_1001]).widen();
+
+        for val in 1..0xFFF {
+            let lhs = F2x::<1>::from_limbs([val]);
+            let inverse = lhs.modinv(&modulus).unwrap();
+            let prod = lhs.modmul(&inverse, &modulus);
+            assert_eq!(prod, F2x::<1>::ONE);
+        }
+
+        assert!(F2x::<1>::ZERO.modinv(&modulus).is_none());
     }
 
     #[test]
@@ -959,7 +1014,7 @@ mod tests {
     }
 
     #[test]
-    fn widef2x_euclidean_div() {
+    fn widef2x_div_rem() {
         let lhs = F2_128::from_limbs([
             0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
         ])
@@ -979,7 +1034,7 @@ mod tests {
             ]),
         );
         let rhs = WideF2x::from_f2x(F2_128::ONE, F2_128::ZERO);
-        assert_eq!(lhs.euclidean_div(&rhs), (quot, rem));
+        assert_eq!(lhs.div_rem(&rhs), (quot, rem));
     }
 
     #[test]
@@ -1634,5 +1689,20 @@ mod tests {
         .widen();
         let (s, t, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs.widen());
         assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
+
+        // TODO: this test does not pass
+        // This does not make sense: rhs is supposedly an irreducible polynomial
+        // so lhs should be invertible modulus rhs
+        let lhs = F2_128::from_limbs([
+            0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
+        ]);
+        let rhs = WideF2x::from_f2x(
+            F2x::<8>::ONE,
+            F2x::<8>::from_limbs([
+                0x0000, 0x0000, 0x0000, 0x2000, 0x0000, 0x0008, 0x0000, 0x0801,
+            ]),
+        );
+        let (inverse, _, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs);
+        assert_eq!(divisor.truncate(), F2x::<8>::ONE);
     }
 }
