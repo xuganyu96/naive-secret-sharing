@@ -1,5 +1,3 @@
-use std::fmt::write;
-
 use secretsharing::f2x::*;
 
 fn main() {

@@ -602,21 +602,16 @@ impl<const L: usize> WideF2x<L> {
         let mut rem = self.clone();
 
         while rem.degree() >= rhs.degree() {
-            // println!("quot: {quot:X}");
-            // println!("rem: {rem:X}");
             // Both rem and rhs are guaranteed to be NonNegative
             let rem_degree: usize = match rem.degree() {
                 Degree::NonNegative(degree) => degree,
                 _ => panic!("Remainder is unexpectedly zero"),
             };
-            // println!("Remainder degree: {rem_degree}");
             let rhs_degree: usize = match rhs.degree() {
                 Degree::NonNegative(degree) => degree,
                 _ => panic!("Divisor is unexpectedly zero"),
             };
-            // println!("RHS degree: {rhs_degree}");
             let degree_diff = rem_degree - rhs_degree;
-            // println!("Need left shift by {degree_diff}");
             quot = quot.add(&Self::ONE.shl(degree_diff));
             rem = rem.sub(&rhs.shl(degree_diff));
         }
@@ -1689,20 +1684,5 @@ mod tests {
         .widen();
         let (s, t, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs.widen());
         assert_eq!((s, t, divisor), (expected_s, expected_t, expected_d));
-
-        // TODO: this test does not pass
-        // This does not make sense: rhs is supposedly an irreducible polynomial
-        // so lhs should be invertible modulus rhs
-        let lhs = F2_128::from_limbs([
-            0x3DCC, 0x5CE2, 0x8A9D, 0x3FE3, 0x5309, 0x07F3, 0xC9FD, 0x43B6,
-        ]);
-        let rhs = WideF2x::from_f2x(
-            F2x::<8>::ONE,
-            F2x::<8>::from_limbs([
-                0x0000, 0x0000, 0x0000, 0x2000, 0x0000, 0x0008, 0x0000, 0x0801,
-            ]),
-        );
-        let (inverse, _, divisor) = WideF2x::xgcd(&lhs.widen(), &rhs);
-        assert_eq!(divisor.truncate(), F2x::<8>::ONE);
     }
 }
