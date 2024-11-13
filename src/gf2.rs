@@ -2,6 +2,22 @@
 use crate::f2x::{F2x, WideF2x};
 use rand::Rng;
 
+/// An algebraic field is defined by 0, 1, addition, and multiplication. Every non-zero element
+/// should have a multiplicative inverse.
+pub trait FieldArithmetic: Sized + Clone {
+    fn is_zero(&self) -> bool;
+    fn is_one(&self) -> bool;
+    fn zero() -> Self;
+    fn one() -> Self;
+    fn random() -> Self;
+    fn modadd(&self, rhs: &Self) -> Self;
+    fn modsub(&self, rhs: &Self) -> Self;
+    fn modmul(&self, rhs: &Self) -> Self;
+    fn modinv(&self) -> Option<Self>;
+    // TODO: I don't need modular exponentiation yet, but it is common
+    // fn modexp(&self, exp: usize) -> Self;
+}
+
 macro_rules! galois_field {
     ($name:ident, $limbs:literal, $irreducible:expr) => {
         /// An element of the binary extension field with the specified exponent

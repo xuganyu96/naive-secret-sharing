@@ -15,39 +15,77 @@
 pub mod f2x;
 pub mod gf2;
 
-use gf2::GF2p128;
+use f2x::Degree;
+use gf2::FieldArithmetic;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Poly {
-    /// Coefficients of the polynomial are laid out in little-endian order: lower vector index
-    /// encodes coefficient for lower-power term
-    coeffs: Vec<GF2p128>,
+pub struct Poly<E: FieldArithmetic> {
+    coeffs: Vec<E>,
 }
 
-impl Poly {
+impl<E: FieldArithmetic> Poly<E> {
     /// Return a zero polynomial with the specified number of coefficients
-    pub fn zero(threshold: usize) -> Self {
-        let coeffs = vec![GF2p128::ZERO; threshold];
+    pub fn zero_with_capacity(capacity: usize) -> Self {
+        let coeffs = vec![E::zero(); capacity];
         Self { coeffs }
     }
 
-    pub fn add(&self, rhs: &Self) -> Self {
+    /// Fill self with random elements from the finite field
+    pub fn fill_random(&mut self) {
+        self.coeffs.iter_mut().for_each(|coeff| {
+            *coeff = E::random();
+        });
+    }
+
+    /// Return true if self encodes a zero polynomial. An empty vector encodes a zero polynomial
+    pub fn is_zero(&self) -> bool {
+        for coeff in self.coeffs.iter() {
+            if !coeff.is_zero() {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// The degree of a polynomial is the power of the highest-power term with a non-zero
+    /// coefficient. The degree of 0 is minus infinity.
+    pub fn degree(&self) -> Degree {
+        if self.is_zero() {
+            return Degree::NegativeInfinity;
+        }
+        let degree = self
+            .coeffs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, coeff)| {
+                if coeff.is_zero() {
+                    return None;
+                } else {
+                    return Some(i);
+                }
+            })
+            .max()
+            .unwrap(); // because self is not zero, this is guaranteed to have something
+        return Degree::NonNegative(degree);
+    }
+
+    pub fn add(&self, _rhs: &Self) -> Self {
         todo!();
     }
 
-    pub fn sub(&self, rhs: &Self) -> Self {
+    pub fn sub(&self, _rhs: &Self) -> Self {
         todo!();
     }
 
-    pub fn mul(&self, rhs: &Self) -> Self {
+    pub fn mul(&self, _rhs: &Self) -> Self {
         todo!();
     }
 
-    pub fn evaluate(&self, at: GF2p128) -> GF2p128 {
+    pub fn evaluate(&self, _at: E) -> E {
         todo!();
     }
 
-    pub fn interpoate(points: &[(GF2p128, GF2p128)]) -> Self {
+    pub fn interpoate(_points: &[(E, E)]) -> Self {
         todo!();
     }
 }
