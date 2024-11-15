@@ -4,6 +4,7 @@
 - [x] Lagrange interpolation
 - [ ] Secret and share encoding/decoding
 - [ ] CLI and user interface
+- [ ] Compile into WASM and build a front-end
 
 # Shamir's secret sharing
 Shamir's secret sharing is actually quite simple. Its security is based on the fact that any degree- $(t-1)$ polynomial can be uniquely determined by its evaluations at $t$ points using the Lagrange Interpolation. The procedure is as follows:

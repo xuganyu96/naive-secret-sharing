@@ -1,4 +1,4 @@
-//! Galois Field of order 2^m
+//! Galois field (finite field) traits and implementations
 use crate::f2x::{F2x, WideF2x};
 use rand::Rng;
 
@@ -118,6 +118,68 @@ galois_field!(
         ]),
     )
 );
+
+/// Toy implementation of the prime field F_3329, mostly for testing purposes since proper secret
+/// sharing requires cryptographically large prime numbers
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct F3329 {
+    val: u64,
+}
+
+impl F3329 {
+    const MODULUS: u64 = 3329;
+}
+
+impl From<u64> for F3329 {
+    fn from(value: u64) -> Self {
+        Self {
+            val: value % Self::MODULUS,
+        }
+    }
+}
+
+impl FieldArithmetic for F3329 {
+    fn zero() -> Self {
+        Self::from(0)
+    }
+    fn one() -> Self {
+        Self::from(1)
+    }
+    fn is_one(&self) -> bool {
+        self.val == 1
+    }
+
+    fn is_zero(&self) -> bool {
+        self.val == 0
+    }
+
+    fn modadd(&self, rhs: &Self) -> Self {
+        Self::from((self.val + rhs.val) % Self::MODULUS)
+    }
+
+    fn modsub(&self, rhs: &Self) -> Self {
+        Self::from((self.val + Self::MODULUS - rhs.val) % Self::MODULUS)
+    }
+
+    fn modmul(&self, rhs: &Self) -> Self {
+        Self::from((self.val * rhs.val) % Self::MODULUS)
+    }
+
+    fn modinv(&self) -> Option<Self> {
+        for inv in 1..Self::MODULUS {
+            if (inv * self.val) % Self::MODULUS == 1 {
+                return Some(Self::from(inv));
+            }
+        }
+        return None;
+    }
+
+    fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        let val: u64 = rng.gen();
+        Self::from(val)
+    }
+}
 
 #[cfg(test)]
 mod tests {
