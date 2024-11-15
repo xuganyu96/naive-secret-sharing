@@ -1,3 +1,3 @@
 fn main() {
-    todo!("Figure out Lagrange interpolation");
+    println!("你好世界");
 }

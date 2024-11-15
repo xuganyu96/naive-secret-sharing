@@ -1,7 +1,7 @@
 # Next:
 - [x] $\text{GF}(2^m)$ arithmetic
-- [ ] Polynomial ring arithmetic
-- [ ] Lagrange interpolation
+- [x] Polynomial ring arithmetic
+- [x] Lagrange interpolation
 - [ ] Secret and share encoding/decoding
 - [ ] CLI and user interface
 

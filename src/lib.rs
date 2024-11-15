@@ -17,6 +17,70 @@ pub mod gf2;
 
 use f2x::Degree;
 use gf2::{FieldArithmetic, GF2p256};
+use rand::Rng;
+
+/// Toy implementation of the prime field F_3329
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct F3329 {
+    val: u64,
+}
+
+impl F3329 {
+    const MODULUS: u64 = 3329;
+}
+
+impl From<u64> for F3329 {
+    fn from(value: u64) -> Self {
+        Self {
+            val: value % Self::MODULUS,
+        }
+    }
+}
+
+impl FieldArithmetic for F3329 {
+    fn zero() -> Self {
+        Self::from(0)
+    }
+    fn one() -> Self {
+        Self::from(1)
+    }
+    fn is_one(&self) -> bool {
+        self.val == 1
+    }
+
+    fn is_zero(&self) -> bool {
+        self.val == 0
+    }
+
+    fn modadd(&self, rhs: &Self) -> Self {
+        Self::from((self.val + rhs.val) % Self::MODULUS)
+    }
+
+    fn modsub(&self, rhs: &Self) -> Self {
+        Self::from((self.val + Self::MODULUS - rhs.val) % Self::MODULUS)
+    }
+
+    fn modmul(&self, rhs: &Self) -> Self {
+        Self::from((self.val * rhs.val) % Self::MODULUS)
+    }
+
+    fn modinv(&self) -> Option<Self> {
+        for inv in 1..Self::MODULUS {
+            if (inv * self.val) % Self::MODULUS == 1 {
+                return Some(Self::from(inv));
+            }
+        }
+        return None;
+    }
+
+    fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        let val: u64 = rng.gen();
+        Self::from(val)
+    }
+}
+
+pub type Poly3329 = Poly<F3329>;
 
 /// The canonical representation of a polynomial using its coefficients
 /// Coefficients are organized in little-endian order: the value at lower index encodes the
@@ -179,7 +243,7 @@ impl<E: FieldArithmetic> Poly<E> {
                     // factor is (x - alpha_j)/(alpha_i - alpha_j)
                     factor.coeffs[0] = *alpha_j;
                     factor.coeffs[1] = E::one();
-                    factor.mul_coeff(&alpha_i.modsub(alpha_j).modinv().unwrap());
+                    factor = factor.mul_coeff(&alpha_i.modsub(alpha_j).modinv().unwrap());
                     basis = basis.mul(&factor);
                 }
             }
@@ -212,32 +276,32 @@ mod tests {
     }
 
     #[test]
-    fn interpolate_random_polynomial() {
-        let mut indeterminates = [GF2p256::zero(); 10];
-        // Probability of collision is cryptographically low
-        indeterminates
-            .iter_mut()
-            .for_each(|alpha| *alpha = GF2p256::random());
-        for (i, a) in indeterminates.iter().enumerate() {
-            for (j, b) in indeterminates.iter().enumerate() {
-                if (i != j) && (a == b) {
-                    panic!("Found collision");
-                }
-            }
-        }
+    fn poly3329_eval() {
+        let mut poly = Poly3329::zero_with_capacity(3);
+        poly.coeffs[0] = F3329::from(536);
+        poly.coeffs[1] = F3329::from(49);
+        poly.coeffs[2] = F3329::from(1873);
+        assert_eq!(poly.evaluate(&F3329::from(1)), F3329::from(2458));
+        assert_eq!(poly.evaluate(&F3329::from(2)), F3329::from(1468));
+        assert_eq!(poly.evaluate(&F3329::from(3)), F3329::from(895));
+    }
 
-        let mut poly = Poly256::zero_with_capacity(10);
+    #[test]
+    fn interpolate_random_polynomial() {
+        let cap = 3;
+        let mut poly = Poly256::zero_with_capacity(cap);
         poly.fill_random();
-        let points = indeterminates
-            .iter()
-            .map(|alpha| {
+        let points = (0..cap)
+            .map(|_| {
+                // Does not check distinctness of field ordering, but the chance of collision is
+                // cryptographically small
+                let alpha = GF2p256::random();
                 let r = poly.evaluate(&alpha);
-                (*alpha, r)
+                (alpha, r)
             })
             .collect::<Vec<(GF2p256, GF2p256)>>();
-        let interpolate = Poly256::interpolate(&points, 10);
-        assert_eq!(interpolate.degree(), Degree::NonNegative(9));
-        // assert_eq!(poly, Poly256::interpolate(&points, 10))
-        assert_eq!(interpolate.evaluate(&points[0].0), points[0].1);
+        let interpolate = Poly256::interpolate(&points, cap);
+        assert_eq!(interpolate.degree(), Degree::NonNegative(cap - 1));
+        assert_eq!(poly, Poly256::interpolate(&points, cap));
     }
 }
