@@ -160,10 +160,10 @@ impl<E: FieldArithmetic> Poly<E> {
         return acc;
     }
 
-    /// Compute the Lagrange polynomial.
+    /// Compute the Lagrange polynomial on the points (x, f(x)).
     /// Points are assumed to be distinct. The behavior of interpoate is undefined if there are
     /// duplicate points.
-    pub fn interpoate(points: &[(E, E)], capacity: usize) -> Self {
+    pub fn interpolate(points: &[(E, E)], capacity: usize) -> Self {
         if points.len() > capacity {
             panic!("Cannot interpolate more points than capacity");
         }
@@ -174,15 +174,14 @@ impl<E: FieldArithmetic> Poly<E> {
             basis.coeffs[0] = E::one();
 
             for (alpha_j, _) in points {
-                if alpha_j == alpha_i {
-                    continue;
+                if alpha_j != alpha_i {
+                    let mut factor = Self::zero_with_capacity(capacity);
+                    // factor is (x - alpha_j)/(alpha_i - alpha_j)
+                    factor.coeffs[0] = *alpha_j;
+                    factor.coeffs[1] = E::one();
+                    factor.mul_coeff(&alpha_i.modsub(alpha_j).modinv().unwrap());
+                    basis = basis.mul(&factor);
                 }
-                let mut factor = Self::zero_with_capacity(capacity);
-                // factor is (x - alpha_j)/(alpha_i - alpha_j)
-                factor.coeffs[0] = E::zero().modsub(alpha_j);
-                factor.coeffs[1] = E::one();
-                factor.mul_coeff(&alpha_i.modsub(alpha_j));
-                basis = basis.mul(&factor);
             }
 
             lagrange = lagrange.add(&basis.mul_coeff(r));
@@ -210,5 +209,35 @@ mod tests {
             .evaluate(&GF2p256::random())
             .is_zero());
         assert_eq!(poly.mul(&one), poly);
+    }
+
+    #[test]
+    fn interpolate_random_polynomial() {
+        let mut indeterminates = [GF2p256::zero(); 10];
+        // Probability of collision is cryptographically low
+        indeterminates
+            .iter_mut()
+            .for_each(|alpha| *alpha = GF2p256::random());
+        for (i, a) in indeterminates.iter().enumerate() {
+            for (j, b) in indeterminates.iter().enumerate() {
+                if (i != j) && (a == b) {
+                    panic!("Found collision");
+                }
+            }
+        }
+
+        let mut poly = Poly256::zero_with_capacity(10);
+        poly.fill_random();
+        let points = indeterminates
+            .iter()
+            .map(|alpha| {
+                let r = poly.evaluate(&alpha);
+                (*alpha, r)
+            })
+            .collect::<Vec<(GF2p256, GF2p256)>>();
+        let interpolate = Poly256::interpolate(&points, 10);
+        assert_eq!(interpolate.degree(), Degree::NonNegative(9));
+        // assert_eq!(poly, Poly256::interpolate(&points, 10))
+        assert_eq!(interpolate.evaluate(&points[0].0), points[0].1);
     }
 }
