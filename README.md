@@ -34,3 +34,5 @@ shamir recover share1.txt share2.txt ... share<t>.txt -o secret.txt
 or
 >>> ERROR: not enough shares; shares don't belong to the same secret; ...
 ```
+
+Under the hood, a random AES-256 key is generated to encrypt the password, then the symmetric key is split into the shares. Each share will contain a point on the polynomial and the entire ciphertext.
