@@ -13,6 +13,8 @@
 //! so as long as we choose a cryptographically large field to build the polynomial on, the scheme
 //! will be secure (it is in fact information theoretically secure).
 
+use crate::poly::Poly256;
+use galoisfields::GF2p256;
 use rand::Rng;
 mod f2x;
 mod galoisfields;
@@ -36,6 +38,9 @@ pub trait SecretSharing: Sized {
     type Field;
     type Shard;
 
+    /// Sample a random polynomial, then hash the polynomial into a 256-bit key
+    /// Threshold indicates the minimum number of distinct shares needed to recover the entire
+    /// polynomial, which is equal to the number of coefficients.
     fn init_with_rng(rng: &mut impl Rng, threshold: usize) -> Self;
     fn init(threshold: usize) -> Self;
     fn update(&mut self, msg: &[u8]);
@@ -45,4 +50,50 @@ pub trait SecretSharing: Sized {
     fn split_with_rng(&self, n: usize, rng: &mut impl Rng) -> Vec<Self::Shard>;
     fn split(&self, n: usize) -> Vec<Self::Shard>;
     fn assemble(shards: &[Self::Shard]) -> SecretSharingResult<Self>;
+}
+
+/// secret sharing using polynomials in GF(2^256)[x]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSharing256 {
+    secret_poly: Poly256,
+}
+
+#[derive(Debug)]
+pub struct SecretSharing256Shard;
+
+impl SecretSharing for SecretSharing256 {
+    type Poly = Poly256;
+    type Field = GF2p256;
+    type Shard = SecretSharing256Shard;
+
+    fn init_with_rng(rng: &mut impl Rng, threshold: usize) -> Self {
+        let mut secret_poly = Poly256::zero_with_capacity(threshold);
+        secret_poly.fill_random_with_rng(rng);
+
+        Self { secret_poly }
+    }
+    fn init(threshold: usize) -> Self {
+        todo!()
+    }
+    fn update(&mut self, msg: &[u8]) {
+        todo!()
+    }
+    fn finalize(&mut self) {
+        todo!()
+    }
+    fn split_once_with_rng(&self, rng: &mut impl Rng) -> Self::Shard {
+        todo!()
+    }
+    fn split_once(&self) -> Self::Shard {
+        todo!()
+    }
+    fn split_with_rng(&self, n: usize, rng: &mut impl Rng) -> Vec<Self::Shard> {
+        todo!()
+    }
+    fn split(&self, n: usize) -> Vec<Self::Shard> {
+        todo!()
+    }
+    fn assemble(shards: &[Self::Shard]) -> SecretSharingResult<Self> {
+        todo!()
+    }
 }

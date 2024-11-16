@@ -1,6 +1,7 @@
 //! General polynomials
 use crate::f2x::Degree;
 use crate::galoisfields::{FieldArithmetic, GF2p256};
+use rand::Rng;
 
 /// The canonical representation of a polynomial using its coefficients
 /// Coefficients are organized in little-endian order: the value at lower index encodes the
@@ -34,6 +35,13 @@ impl<E: FieldArithmetic> Poly<E> {
     pub fn fill_random(&mut self) {
         self.coeffs.iter_mut().for_each(|coeff| {
             *coeff = E::random();
+        });
+    }
+
+    /// Fill self with random elements according to the input RNG
+    pub fn fill_random_with_rng(&mut self, rng: &mut impl Rng) {
+        self.coeffs.iter_mut().for_each(|coeff| {
+            *coeff = E::random_with_rng(rng);
         });
     }
 
@@ -176,6 +184,8 @@ impl<E: FieldArithmetic> Poly<E> {
 }
 
 pub type Poly256 = Poly<GF2p256>;
+/// A point contains two values (x, f(x))
+pub type Poly256Point = (GF2p256, GF2p256);
 
 #[cfg(test)]
 mod tests {

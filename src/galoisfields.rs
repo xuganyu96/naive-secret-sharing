@@ -10,6 +10,7 @@ pub trait FieldArithmetic: Sized + Copy + Clone + PartialEq + Eq {
     fn zero() -> Self;
     fn one() -> Self;
     fn random() -> Self;
+    fn random_with_rng(rng: &mut impl Rng) -> Self;
     fn modadd(&self, rhs: &Self) -> Self;
     fn modsub(&self, rhs: &Self) -> Self;
     fn modmul(&self, rhs: &Self) -> Self;
@@ -47,6 +48,12 @@ macro_rules! galois_field {
                 Self { poly }
             }
 
+            fn random_with_rng(rng: &mut impl Rng) -> Self {
+                let mut limbs = [0; Self::LIMBS];
+                rng.fill(&mut limbs);
+                let poly = F2x::from_limbs(limbs);
+                Self { poly }
+            }
             fn modadd(&self, rhs: &Self) -> Self {
                 Self::from_poly(self.poly.add(&rhs.poly))
             }
@@ -176,6 +183,11 @@ impl FieldArithmetic for F3329 {
 
     fn random() -> Self {
         let mut rng = rand::thread_rng();
+        let val: u64 = rng.gen();
+        Self::from(val)
+    }
+
+    fn random_with_rng(rng: &mut impl Rng) -> Self {
         let val: u64 = rng.gen();
         Self::from(val)
     }
