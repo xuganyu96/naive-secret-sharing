@@ -16,8 +16,9 @@
 use crate::poly::Poly256;
 use galoisfields::GF2p256;
 use rand::Rng;
+use sha3::{Digest, Sha3_256};
 mod f2x;
-mod galoisfields;
+pub mod galoisfields;
 pub mod poly;
 
 pub type SecretSharingResult<T> = Result<T, SecretSharingError>;
@@ -61,6 +62,7 @@ pub struct SecretSharing256 {
 #[derive(Debug)]
 pub struct SecretSharing256Shard;
 
+#[allow(unused_variables)]
 impl SecretSharing for SecretSharing256 {
     type Poly = Poly256;
     type Field = GF2p256;
@@ -69,6 +71,11 @@ impl SecretSharing for SecretSharing256 {
     fn init_with_rng(rng: &mut impl Rng, threshold: usize) -> Self {
         let mut secret_poly = Poly256::zero_with_capacity(threshold);
         secret_poly.fill_random_with_rng(rng);
+
+        let mut hasher = Sha3_256::new();
+        // TODO: need to implement byte encoding and decoding first
+        // hasher.update(secret_poly);
+        let result = hasher.finalize();
 
         Self { secret_poly }
     }

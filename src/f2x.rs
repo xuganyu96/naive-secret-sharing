@@ -63,6 +63,39 @@ impl<const L: usize> F2x<L> {
     pub const ZERO: Self = Self::zero();
     pub const ONE: Self = Self::one();
     pub const BITS: usize = (Word::BITS as usize) * L;
+    pub const BYTES: usize = Self::BITS / 8;
+
+    /// Serialize self to byte array. Caller is resonsible for passing a mutable reference with the
+    /// exactly currect size, or the method will panic
+    pub fn write_to_be_bytes(&self, dst: &mut [u8]) {
+        if dst.len() != Self::BYTES {
+            panic!("input buffer size is incorrect");
+        }
+        self.limbs.iter().enumerate().for_each(|(i, limb)| {
+            let limb_bytes = limb.to_be_bytes();
+            dst.get_mut((2 * i)..(2 * i + 2))
+                .unwrap()
+                .copy_from_slice(&limb_bytes);
+        });
+    }
+
+    /// Deserialize from byte array. Caller is resonsible for passing a mutable reference with the
+    /// exactly currect size, or the method will panic.
+    ///
+    /// This method should be the perfect inverse of `write_to_be_bytes`
+    pub fn read_from_be_bytes(src: &[u8]) -> Self {
+        if src.len() != Self::BYTES {
+            panic!("input buffer size is incorrect");
+        }
+        let mut poly = Self::ZERO;
+
+        poly.limbs.iter_mut().enumerate().for_each(|(i, limb)| {
+            let mut be_bytes = [0; 2];
+            be_bytes.copy_from_slice(&src[(2 * i)..(2 * i + 2)]);
+            *limb = Word::from_be_bytes(be_bytes);
+        });
+        poly
+    }
 
     /// Clone into a wide polynomial of the same value
     pub fn widen(&self) -> WideF2x<L> {
@@ -672,6 +705,17 @@ mod tests {
     use super::*;
 
     type F2_128 = F2x<8>;
+
+    #[test]
+    fn read_write_random_bytes() {
+        let lhs = F2_128::from_limbs([
+            0xA95D, 0x01B0, 0xD0A6, 0x81A9, 0x92A5, 0xA216, 0xC971, 0x961A,
+        ]);
+        let mut buf = [0; F2_128::BYTES];
+        lhs.write_to_be_bytes(&mut buf);
+        let rhs = F2_128::read_from_be_bytes(&buf);
+        assert_eq!(lhs, rhs);
+    }
 
     #[test]
     fn word_widening_clmul() {

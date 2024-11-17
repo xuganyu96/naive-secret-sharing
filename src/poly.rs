@@ -16,6 +16,36 @@ impl<E: FieldArithmetic> Poly<E> {
         Self { coeffs }
     }
 
+    pub fn bytes(&self) -> usize {
+        self.capacity() * E::bytes()
+    }
+
+    pub fn serialize(&self, dst: &mut [u8]) {
+        if self.bytes() != dst.len() {
+            panic!("buffer size is incorrect");
+        }
+        self.coeffs.iter().enumerate().for_each(|(i, coeff)| {
+            let start = E::bytes() * i;
+            let stop = start + E::bytes();
+            coeff.write_be_bytes(&mut dst[start..stop]);
+        })
+    }
+
+    pub fn deserialize(src: &[u8], capacity: usize) -> Self {
+        if capacity * E::bytes() != src.len() {
+            panic!("buffer size is incorrect");
+        }
+        let mut output = Self::zero_with_capacity(capacity);
+
+        output.coeffs.iter_mut().enumerate().for_each(|(i, coeff)| {
+            let start = E::bytes() * i;
+            let stop = start + E::bytes();
+            *coeff = E::from_be_bytes(&src[start..stop]);
+        });
+
+        output
+    }
+
     /// The length of the coefficient vector.
     ///
     /// The capacity of a polynomial is determined when it is created and will not change. Each
@@ -237,5 +267,16 @@ mod tests {
         let interpolate = Poly256::interpolate(&points, cap);
         assert_eq!(interpolate.degree(), Degree::NonNegative(cap - 1));
         assert_eq!(poly, Poly256::interpolate(&points, cap));
+    }
+
+    #[test]
+    fn random_poly256_serde() {
+        let cap = 10;
+        let mut lhs = Poly256::zero_with_capacity(cap);
+        lhs.fill_random();
+        let mut buf = vec![0u8; lhs.bytes()];
+        lhs.serialize(&mut buf);
+        let rhs = Poly256::deserialize(&buf, cap);
+        assert_eq!(lhs, rhs);
     }
 }

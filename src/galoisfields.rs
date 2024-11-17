@@ -1,5 +1,5 @@
 //! Galois field (finite field) traits and implementations
-use crate::f2x::{F2x, WideF2x};
+use crate::f2x::{F2x, WideF2x, Word};
 use rand::Rng;
 
 /// An algebraic field is defined by 0, 1, addition, and multiplication. Every non-zero element
@@ -15,6 +15,12 @@ pub trait FieldArithmetic: Sized + Copy + Clone + PartialEq + Eq {
     fn modsub(&self, rhs: &Self) -> Self;
     fn modmul(&self, rhs: &Self) -> Self;
     fn modinv(&self) -> Option<Self>;
+
+    // NOTE: serialization and deserialization is technically not part of FieldArithmetic; consider
+    // moving them to a different trait later
+    fn bytes() -> usize;
+    fn write_be_bytes(&self, dst: &mut [u8]);
+    fn from_be_bytes(src: &[u8]) -> Self;
     // TODO: I don't need modular exponentiation yet, but it is common
     // fn modexp(&self, exp: usize) -> Self;
 }
@@ -74,10 +80,25 @@ macro_rules! galois_field {
                 let inverse = self.poly.modinv(&Self::MODULUS);
                 inverse.map_or(None, |poly| Some(Self::from_poly(poly)))
             }
+
+            fn bytes() -> usize {
+                Self::BYTES
+            }
+
+            fn write_be_bytes(&self, dst: &mut [u8]) {
+                self.poly.write_to_be_bytes(dst);
+            }
+
+            fn from_be_bytes(src: &[u8]) -> Self {
+                let poly = F2x::<{ Self::LIMBS }>::read_from_be_bytes(src);
+                Self::from_poly(poly)
+            }
         }
 
         impl $name {
             pub const LIMBS: usize = $limbs;
+            pub const BITS: usize = (Word::BITS as usize) * Self::LIMBS;
+            pub const BYTES: usize = Self::BITS / 8;
             pub const MODULUS: WideF2x<{ Self::LIMBS }> = $irreducible;
             pub const ONE: Self = Self::from_poly(F2x::<{ Self::LIMBS }>::ONE);
             pub const ZERO: Self = Self::from_poly(F2x::<{ Self::LIMBS }>::ZERO);
@@ -191,6 +212,20 @@ impl FieldArithmetic for F3329 {
         let val: u64 = rng.gen();
         Self::from(val)
     }
+
+    fn bytes() -> usize {
+        (u64::BITS as usize) / 8
+    }
+
+    #[allow(unused_variables)]
+    fn write_be_bytes(&self, dst: &mut [u8]) {
+        todo!();
+    }
+
+    #[allow(unused_variables)]
+    fn from_be_bytes(src: &[u8]) -> Self {
+        todo!();
+    }
 }
 
 #[cfg(test)]
@@ -293,6 +328,17 @@ mod tests {
                 let inv = elem.modinv().unwrap();
                 assert_eq!(elem.modmul(&inv), GF2p256::ONE);
             }
+        }
+    }
+
+    #[test]
+    fn random_gf2p256_serde() {
+        for _ in 0..NTESTS {
+            let lhs = GF2p256::random();
+            let mut buf = [0u8; GF2p256::BYTES];
+            lhs.write_be_bytes(&mut buf);
+            let rhs = GF2p256::from_be_bytes(&buf);
+            assert_eq!(lhs, rhs);
         }
     }
 }
