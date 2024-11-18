@@ -44,11 +44,11 @@ pub struct SecretSharing256 {
     // struct manually
     cipher: Aes256Gcm,
     /// AES-256-GCM uses 96-bit nonce
-    nonce: [u8; 12],
+    pub nonce: [u8; 12],
     /// A ciphertext of length 0 indicates there is no ciphertext yet
-    ciphertext: Vec<u8>,
+    pub ciphertext: Vec<u8>,
     /// The collection of random points
-    shards: Vec<SecretSharingShard<GF2p256>>,
+    pub shards: Vec<SecretSharingShard<GF2p256>>,
 }
 
 #[derive(Debug)]
@@ -73,6 +73,7 @@ impl SecretSharing256 {
         let mut hasher: Sha3_256 = Digest::new();
         secret_poly.update_hasher(&mut hasher);
         let result = hasher.finalize(); // GenericArray<u8, OutputSize>
+        println!("Polynomial hashes into: {:?}", &result);
         let key: Key<Aes256Gcm> = result.into();
         let cipher = Aes256Gcm::new(&key);
         let nonce: [u8; 12] = Aes256Gcm::generate_nonce(rng).into();
@@ -159,8 +160,31 @@ impl SecretSharing256 {
         let mut hasher: Sha3_256 = Digest::new();
         recovered_poly.update_hasher(&mut hasher);
         let result = hasher.finalize(); // GenericArray<u8, OutputSize>
+        println!("Polynomial hashes into: {:?}", &result);
         let key: Key<Aes256Gcm> = result.into();
         let cipher = Aes256Gcm::new(&key);
         cipher.decrypt(nonce.into(), ciphertext)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_secret_sharing_256() {
+        let threshold = 3;
+        let redundancy = 10;
+        let secret_msg = b"Hello, world";
+        let mut secret_sharing = SecretSharing256::init(threshold);
+        secret_sharing.safe_split(redundancy);
+        secret_sharing.encrypt(secret_msg).unwrap();
+        let decryption = SecretSharing256::decrypt(
+            &secret_sharing.ciphertext,
+            &secret_sharing.nonce,
+            &secret_sharing.shards[..threshold],
+        )
+        .unwrap();
+        assert_eq!(decryption, secret_msg);
     }
 }
