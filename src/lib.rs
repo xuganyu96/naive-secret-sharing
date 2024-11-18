@@ -17,9 +17,11 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Key,
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use galoisfields::{FieldArithmetic, GF2p256};
 use rand::{rngs::OsRng, CryptoRng, Rng};
 use sha3::{Digest, Sha3_256};
+use std::io::Write;
 mod f2x;
 pub mod galoisfields;
 pub mod poly;
@@ -27,7 +29,13 @@ pub mod poly;
 pub type SecretSharingResult<T> = Result<T, SecretSharingError>;
 
 #[derive(Debug)]
-pub enum SecretSharingError {}
+pub enum SecretSharingError {
+    NoCiphertext,
+    TooFewShards { expect: usize, has: usize },
+    InvalidShares(String),
+    EmptySharesInput,
+    AesGcmError(aes_gcm::Error),
+}
 
 impl core::fmt::Display for SecretSharingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,18 +56,34 @@ pub struct SecretSharing256 {
     /// A ciphertext of length 0 indicates there is no ciphertext yet
     pub ciphertext: Vec<u8>,
     /// The collection of random points
-    pub shards: Vec<SecretSharingShard<GF2p256>>,
+    pub shards: Vec<SecretSharingPoint<GF2p256>>,
 }
 
 #[derive(Debug)]
-pub struct SecretSharingShard<E> {
+pub struct SecretSharingPoint<E> {
     x: E,
     poly_at_x: E,
 }
 
-impl<E: FieldArithmetic> SecretSharingShard<E> {
+impl<E: FieldArithmetic> SecretSharingPoint<E> {
     pub fn from_vals(x: E, poly_at_x: E) -> Self {
         Self { x, poly_at_x }
+    }
+}
+
+/// Convenient struct for serde
+#[derive(Debug)]
+pub struct SecretShare {
+    threshold: usize,
+    nonce: String,
+    ciphertext: String,
+    secret_x: String,
+    secret_fx: String,
+}
+
+impl SecretShare {
+    pub fn serialize(&self, writer: &mut impl Write) -> std::io::Result<usize> {
+        todo!();
     }
 }
 
@@ -87,6 +111,11 @@ impl SecretSharing256 {
         }
     }
 
+    /// The minimum number of shares needed to recover the secret polynomial
+    pub fn threshold(&self) -> usize {
+        self.secret_poly.capacity()
+    }
+
     /// Use the default OsRng to initialize a secret sharing session
     pub fn init(threshold: usize) -> Self {
         Self::init_with_rng(&mut OsRng, threshold)
@@ -110,7 +139,7 @@ impl SecretSharing256 {
         (0..n).for_each(|_| 'rejsample: loop {
             let x = GF2p256::random_with_rng(rng);
             if !self.contains_point(&x) {
-                self.shards.push(SecretSharingShard::from_vals(
+                self.shards.push(SecretSharingPoint::from_vals(
                     x,
                     self.secret_poly.evaluate(&x),
                 ));
@@ -125,7 +154,7 @@ impl SecretSharing256 {
     pub fn fast_split_with_rng(&mut self, n: usize, rng: &mut (impl Rng + CryptoRng)) {
         for _ in 0..n {
             let x = GF2p256::random_with_rng(rng);
-            self.shards.push(SecretSharingShard::from_vals(
+            self.shards.push(SecretSharingPoint::from_vals(
                 x,
                 self.secret_poly.evaluate(&x),
             ));
@@ -150,8 +179,8 @@ impl SecretSharing256 {
     pub fn decrypt(
         ciphertext: &[u8],
         nonce: &[u8],
-        shards: &[SecretSharingShard<GF2p256>],
-    ) -> Result<Vec<u8>, aes_gcm::Error> {
+        shards: &[SecretSharingPoint<GF2p256>],
+    ) -> Result<Vec<u8>, SecretSharingError> {
         let points = shards
             .iter()
             .map(|shard| (shard.x.clone(), shard.poly_at_x.clone()))
@@ -163,7 +192,97 @@ impl SecretSharing256 {
         println!("Polynomial hashes into: {:?}", &result);
         let key: Key<Aes256Gcm> = result.into();
         let cipher = Aes256Gcm::new(&key);
-        cipher.decrypt(nonce.into(), ciphertext)
+
+        match cipher.decrypt(nonce.into(), ciphertext) {
+            Ok(decryption) => Ok(decryption),
+            Err(e) => Err(SecretSharingError::AesGcmError(e)),
+        }
+    }
+
+    /// Return a list of string, where each string contains (threshold, nonce, ciphertext, shard),
+    /// which can then be written to a file for further storage.
+    /// If there is no ciphertext or if the number of shards is less than the threshold, then
+    /// return appropriate error.
+    pub fn stringify_shards(&self) -> Result<Vec<SecretShare>, SecretSharingError> {
+        if self.ciphertext.len() == 0 {
+            return Err(SecretSharingError::NoCiphertext);
+        }
+        if self.shards.len() < self.threshold() {
+            return Err(SecretSharingError::TooFewShards {
+                expect: self.threshold(),
+                has: self.shards.len(),
+            });
+        }
+        let nonce_str = BASE64_STANDARD.encode(&self.nonce);
+        let ciphertext_str = BASE64_STANDARD.encode(&self.ciphertext);
+        let shares = self
+            .shards
+            .iter()
+            .map(|shard| {
+                let mut buf = [0u8; GF2p256::BYTES];
+                shard.x.write_be_bytes(&mut buf);
+                let secret_x_str = BASE64_STANDARD.encode(&buf);
+                shard.poly_at_x.write_be_bytes(&mut buf);
+                let secret_fx_str = BASE64_STANDARD.encode(&buf);
+
+                SecretShare {
+                    threshold: self.threshold(),
+                    nonce: nonce_str.clone(),
+                    ciphertext: ciphertext_str.clone(),
+                    secret_x: secret_x_str,
+                    secret_fx: secret_fx_str,
+                }
+            })
+            .collect::<Vec<SecretShare>>();
+
+        Ok(shares)
+    }
+
+    /// Attempt to decrypt using the input set of shares
+    /// The shares need to have identical threshold, nonce, ciphertext, and distinct secret_x, or
+    /// they will be considered invalid input
+    pub fn decrypt_from_secret_shares(
+        shares: &[SecretShare],
+    ) -> Result<Vec<u8>, SecretSharingError> {
+        if shares.len() == 0 {
+            return Err(SecretSharingError::EmptySharesInput);
+        }
+        for i in 1..(shares.len()) {
+            let share = &shares[i];
+            if share.nonce != shares[0].nonce
+                || share.threshold != shares[0].threshold
+                || share.ciphertext != shares[0].ciphertext
+            {
+                return Err(SecretSharingError::InvalidShares(
+                    "Nonce, threshold, or ciphertext is inconsistent".into(),
+                ));
+            }
+        }
+
+        // Inputs have been validated
+        // TODO: get rid of unwraps
+        let nonce = BASE64_STANDARD.decode(&shares[0].nonce).unwrap();
+        let ciphertext = BASE64_STANDARD.decode(&shares[0].ciphertext).unwrap();
+        let threshold = shares[0].threshold;
+        if shares.len() < threshold {
+            return Err(SecretSharingError::TooFewShards {
+                expect: threshold,
+                has: shares.len(),
+            });
+        }
+        let points = shares
+            .get(..threshold)
+            .unwrap()
+            .iter()
+            .map(|share| {
+                let x = GF2p256::from_be_bytes(&BASE64_STANDARD.decode(&share.secret_x).unwrap());
+                let fx = GF2p256::from_be_bytes(&BASE64_STANDARD.decode(&share.secret_fx).unwrap());
+                let point = SecretSharingPoint::from_vals(x, fx);
+                point
+            })
+            .collect::<Vec<SecretSharingPoint<GF2p256>>>();
+
+        Self::decrypt(&ciphertext, &nonce, &points)
     }
 }
 
@@ -185,6 +304,19 @@ mod tests {
             &secret_sharing.shards[..threshold],
         )
         .unwrap();
+        assert_eq!(decryption, secret_msg);
+    }
+
+    #[test]
+    fn random_secret_sharing_256_stringified() {
+        let threshold = 3;
+        let redundancy = 10;
+        let secret_msg = b"Hello, world";
+        let mut secret_sharing = SecretSharing256::init(threshold);
+        secret_sharing.safe_split(redundancy);
+        secret_sharing.encrypt(secret_msg).unwrap();
+        let shares = secret_sharing.stringify_shards().unwrap();
+        let decryption = SecretSharing256::decrypt_from_secret_shares(&shares).unwrap();
         assert_eq!(decryption, secret_msg);
     }
 }
