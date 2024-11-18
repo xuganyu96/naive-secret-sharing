@@ -2,6 +2,7 @@
 use crate::f2x::Degree;
 use crate::galoisfields::{FieldArithmetic, GF2p256};
 use rand::Rng;
+use sha3::Digest;
 
 /// The canonical representation of a polynomial using its coefficients
 /// Coefficients are organized in little-endian order: the value at lower index encodes the
@@ -44,6 +45,12 @@ impl<E: FieldArithmetic> Poly<E> {
         });
 
         output
+    }
+
+    /// Convenient method for updating a hasher without needing to explicitly allocate memory
+    pub fn update_hasher(&self, hasher: &mut impl Digest) {
+        let buf = vec![0u8; self.bytes()];
+        hasher.update(&buf);
     }
 
     /// The length of the coefficient vector.
