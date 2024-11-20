@@ -82,7 +82,7 @@ impl SecretSharing256 {
         let mut hasher: Sha3_256 = Digest::new();
         secret_poly.update_hasher(&mut hasher);
         let result = hasher.finalize(); // GenericArray<u8, OutputSize>
-        println!("Polynomial hashes into: {:?}", &result);
+                                        // println!("Polynomial hashes into: {:?}", &result);
         let key: Key<Aes256Gcm> = result.into();
         let cipher = Aes256Gcm::new(&key);
         let nonce: [u8; 12] = Aes256Gcm::generate_nonce(rng).into();
@@ -173,7 +173,7 @@ impl SecretSharing256 {
         let mut hasher: Sha3_256 = Digest::new();
         recovered_poly.update_hasher(&mut hasher);
         let result = hasher.finalize(); // GenericArray<u8, OutputSize>
-        println!("Polynomial hashes into: {:?}", &result);
+                                        // println!("Polynomial hashes into: {:?}", &result);
         let key: Key<Aes256Gcm> = result.into();
         let cipher = Aes256Gcm::new(&key);
 

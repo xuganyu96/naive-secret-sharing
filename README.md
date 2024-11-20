@@ -3,7 +3,7 @@
 - [x] Polynomial ring arithmetic
 - [x] Lagrange interpolation
 - [x] Secret and share encoding/decoding
-- [ ] CLI
+- [x] CLI
 
 # Shamir's secret sharing
 Shamir's secret sharing is actually quite simple. Its security is based on the fact that any degree- $(t-1)$ polynomial can be uniquely determined by its evaluations at $t$ points using the Lagrange Interpolation. The procedure is as follows:
@@ -20,19 +20,13 @@ Let field size be $k = \log_2 \vert K \vert$, denote the number of shares by $n$
 - Evaluating a single points requires $t$ field multiplication, so generating all shares requires $nt$ field multiplications
 - Lagrange interpolation takes how many field multiplication?
 
-# User experience
-I mainly want this to be a password recovery tool. The user experience should be something like this:
-
+# Getting started
 ```bash
-# Split into 5 shares; any 3 shares can recover the secret
-shamir split -n 5 -t 3
->>> enter password:
-
-# Based on the content of the input files, we should be able to decide whether the secret can be recovered or not
-shamir recover share1.txt share2.txt ... share<t>.txt -o secret.txt
->>> Your password is: supersecretpassword
-or
->>> ERROR: not enough shares; shares don't belong to the same secret; ...
+# Split "Hello, world", each share is a file in the output ZIP archive
+echo "Hello, world" | ./target/debug/shamir split -t 2 -n 3 -o shamir.zip
+unzip shamir.zip
+# Assemble the shares back into the original secret
+./target/debug/shamir assemble 0.txt 1.txt 2.txt
+# clean-up
+rm shamir.zip 0.txt 1.txt 2.txt
 ```
-
-Under the hood, a random AES-256 key is generated to encrypt the password, then the symmetric key is split into the shares. Each share will contain a point on the polynomial and the entire ciphertext.
