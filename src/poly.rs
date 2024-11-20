@@ -220,9 +220,21 @@ impl<E: FieldArithmetic> Poly<E> {
     }
 }
 
+/// A point on the polynomial is represented by two field elements
+#[derive(Debug)]
+pub struct PolyPoint<E> {
+    pub x: E,
+    pub fx: E,
+}
+
+impl<E: FieldArithmetic> PolyPoint<E> {
+    pub fn from_vals(x: E, fx: E) -> Self {
+        Self { x, fx }
+    }
+}
+
 pub type Poly256 = Poly<GF2p256>;
-/// A point contains two values (x, f(x))
-pub type Poly256Point = (GF2p256, GF2p256);
+pub type Poly256Point = PolyPoint<GF2p256>;
 
 #[cfg(test)]
 mod tests {
