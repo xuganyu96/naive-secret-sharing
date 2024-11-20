@@ -8,17 +8,22 @@ use aes_gcm::{
 use base64::{prelude::BASE64_STANDARD, Engine};
 use rand::{rngs::OsRng, CryptoRng, Rng};
 use sha3::{Digest, Sha3_256};
-use std::io::Write;
 
 pub type SecretSharingResult<T> = Result<T, SecretSharingError>;
 
 #[derive(Debug)]
 pub enum SecretSharingError {
     NoCiphertext,
-    TooFewShards { expect: usize, has: usize },
+    TooFewShards {
+        expect: usize,
+        has: usize,
+    },
     InvalidShares(String),
+    InvalidNonce(String),
     EmptySharesInput,
     AesGcmError(aes_gcm::Error),
+    /// some input base64 encoding is invalid
+    Base64DecodingError,
 }
 
 impl core::fmt::Display for SecretSharingError {
@@ -54,8 +59,11 @@ pub struct SecretShare {
 }
 
 impl SecretShare {
-    pub fn serialize(&self, _writer: &mut impl Write) -> std::io::Result<usize> {
-        todo!();
+    pub fn to_string(&self) -> String {
+        todo!()
+    }
+    pub fn from_string(_s: &str) -> Result<Self, SecretSharingError> {
+        todo!()
     }
 }
 
@@ -229,11 +237,17 @@ impl SecretSharing256 {
                 ));
             }
         }
-
-        // Inputs have been validated
-        // TODO: get rid of unwraps
-        let nonce = BASE64_STANDARD.decode(&shares[0].nonce).unwrap();
-        let ciphertext = BASE64_STANDARD.decode(&shares[0].ciphertext).unwrap();
+        let nonce = BASE64_STANDARD
+            .decode(&shares[0].nonce)
+            .map_err(|_b64_err| SecretSharingError::Base64DecodingError)?;
+        if nonce.len() != aes_gcm::Aes256Gcm::generate_nonce(&mut OsRng).len() {
+            return Err(SecretSharingError::InvalidNonce(
+                "expect nonce to be 96-bit".into(),
+            ));
+        }
+        let ciphertext = BASE64_STANDARD
+            .decode(&shares[0].ciphertext)
+            .map_err(|_b64_err| SecretSharingError::Base64DecodingError)?;
         let threshold = shares[0].threshold;
         if shares.len() < threshold {
             return Err(SecretSharingError::TooFewShards {
@@ -241,17 +255,34 @@ impl SecretSharing256 {
                 has: shares.len(),
             });
         }
-        let points = shares
-            .get(..threshold)
-            .unwrap()
+        let top_shares = match shares.get(..threshold) {
+            Some(slice) => slice,
+            None => {
+                return Err(SecretSharingError::TooFewShards {
+                    expect: threshold,
+                    has: shares.len(),
+                });
+            }
+        };
+        // This is the coolest shit!
+        // An Iterator<Item = Result<T, E>> can be collected into a Result<Vec<T>, E>
+        let points = top_shares
             .iter()
             .map(|share| {
-                let x = GF2p256::from_be_bytes(&BASE64_STANDARD.decode(&share.secret_x).unwrap());
-                let fx = GF2p256::from_be_bytes(&BASE64_STANDARD.decode(&share.secret_fx).unwrap());
+                let x = GF2p256::from_be_bytes(
+                    &BASE64_STANDARD
+                        .decode(&share.secret_x)
+                        .map_err(|_b64err| SecretSharingError::Base64DecodingError)?,
+                );
+                let fx = GF2p256::from_be_bytes(
+                    &BASE64_STANDARD
+                        .decode(&share.secret_fx)
+                        .map_err(|_b64err| SecretSharingError::Base64DecodingError)?,
+                );
                 let point = Poly256Point::from_vals(x, fx);
-                point
+                Ok(point)
             })
-            .collect::<Vec<Poly256Point>>();
+            .collect::<Result<Vec<Poly256Point>, SecretSharingError>>()?;
 
         Self::decrypt(&ciphertext, &nonce, &points)
     }
@@ -262,32 +293,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn random_secret_sharing_256() {
+    fn random_secret_sharing_256() -> Result<(), SecretSharingError> {
         let threshold = 3;
         let redundancy = 10;
         let secret_msg = b"Hello, world";
         let mut secret_sharing = SecretSharing256::init(threshold);
         secret_sharing.safe_split(redundancy);
-        secret_sharing.encrypt(secret_msg).unwrap();
+        secret_sharing.encrypt(secret_msg)?;
         let decryption = SecretSharing256::decrypt(
             &secret_sharing.ciphertext,
             &secret_sharing.nonce,
             &secret_sharing.shards[..threshold],
-        )
-        .unwrap();
+        )?;
         assert_eq!(decryption, secret_msg);
+
+        Ok(())
     }
 
     #[test]
-    fn random_secret_sharing_256_stringified() {
+    fn random_secret_sharing_256_stringified() -> Result<(), SecretSharingError> {
         let threshold = 3;
         let redundancy = 10;
         let secret_msg = b"Hello, world";
         let mut secret_sharing = SecretSharing256::init(threshold);
         secret_sharing.safe_split(redundancy);
-        secret_sharing.encrypt(secret_msg).unwrap();
-        let shares = secret_sharing.stringify_shards().unwrap();
-        let decryption = SecretSharing256::decrypt_from_secret_shares(&shares).unwrap();
+        secret_sharing.encrypt(secret_msg)?;
+        let shares = secret_sharing.stringify_shards()?;
+        let decryption = SecretSharing256::decrypt_from_secret_shares(&shares)?;
         assert_eq!(decryption, secret_msg);
+
+        Ok(())
     }
 }

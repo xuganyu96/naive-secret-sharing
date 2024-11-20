@@ -73,9 +73,10 @@ impl<const L: usize> F2x<L> {
         }
         self.limbs.iter().enumerate().for_each(|(i, limb)| {
             let limb_bytes = limb.to_be_bytes();
-            dst.get_mut((2 * i)..(2 * i + 2))
-                .unwrap()
-                .copy_from_slice(&limb_bytes);
+            let start = 2 * i;
+            let stop = 2 * i + 2;
+            // the length check earlier ensures this slice is valid
+            dst[start..stop].copy_from_slice(&limb_bytes);
         });
     }
 
@@ -516,18 +517,25 @@ impl<const L: usize> WideF2x<L> {
         for i in 0..(2 * L) {
             for j in 0..(2 * L) {
                 let (high_limb, low_limb) = widening_clmul(
-                    *self.get_limb(2 * L - i - 1).unwrap(),
-                    *rhs.get_limb(2 * L - j - 1).unwrap(),
+                    *self
+                        .get_limb(2 * L - i - 1)
+                        .expect("unexpected index out-of-bound"),
+                    *rhs.get_limb(2 * L - j - 1)
+                        .expect("unexpected index out-of-bound"),
                 );
                 if (low_limb != 0 && i + j >= 2 * L) || (high_limb != 0 && i + j + 1 >= 2 * L) {
                     // Overflowed
                     overflowed = true;
                 }
                 if i + j < 2 * L {
-                    *prod.get_mut_limb(2 * L - (i + j) - 1).unwrap() ^= low_limb;
+                    *prod
+                        .get_mut_limb(2 * L - (i + j) - 1)
+                        .expect("unexpected index out-of-bound") ^= low_limb;
                 }
                 if i + j + 1 < 2 * L {
-                    *prod.get_mut_limb(2 * L - (i + j + 1) - 1).unwrap() ^= high_limb;
+                    *prod
+                        .get_mut_limb(2 * L - (i + j + 1) - 1)
+                        .expect("unexpected index out-of-bound") ^= high_limb;
                 }
             }
         }
@@ -979,7 +987,7 @@ mod tests {
 
         for val in 1..0xFFF {
             let lhs = F2x::<1>::from_limbs([val]);
-            let inverse = lhs.modinv(&modulus).unwrap();
+            let inverse = lhs.modinv(&modulus).expect("lhs is not zero!");
             let prod = lhs.modmul(&inverse, &modulus);
             assert_eq!(prod, F2x::<1>::ONE);
         }

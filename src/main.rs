@@ -12,8 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &secret_sharing.ciphertext,
         &secret_sharing.nonce,
         &secret_sharing.shards[..threshold],
-    )
-    .unwrap();
+    )?;
 
     return Ok(());
 }

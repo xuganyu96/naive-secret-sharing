@@ -299,7 +299,7 @@ mod tests {
             if elem.poly.is_zero() {
                 assert!(elem.modinv().is_none());
             } else {
-                let inv = elem.modinv().unwrap();
+                let inv = elem.modinv().expect("Unexpected inversion failure");
                 assert_eq!(elem.modmul(&inv), GF2p128::ONE);
             }
         }
@@ -312,7 +312,7 @@ mod tests {
             if elem.poly.is_zero() {
                 assert!(elem.modinv().is_none());
             } else {
-                let inv = elem.modinv().unwrap();
+                let inv = elem.modinv().expect("Unexpected inversion failure");
                 assert_eq!(elem.modmul(&inv), GF2p192::ONE);
             }
         }
@@ -325,7 +325,7 @@ mod tests {
             if elem.poly.is_zero() {
                 assert!(elem.modinv().is_none());
             } else {
-                let inv = elem.modinv().unwrap();
+                let inv = elem.modinv().expect("Unexpected inversion failure");
                 assert_eq!(elem.modmul(&inv), GF2p256::ONE);
             }
         }

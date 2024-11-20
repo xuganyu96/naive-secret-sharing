@@ -3,7 +3,7 @@
 - [x] Polynomial ring arithmetic
 - [x] Lagrange interpolation
 - [x] Secret and share encoding/decoding
-- [ ] Use some frontend to make an app that can be hosted on github.io
+- [ ] CLI
 
 # Shamir's secret sharing
 Shamir's secret sharing is actually quite simple. Its security is based on the fact that any degree- $(t-1)$ polynomial can be uniquely determined by its evaluations at $t$ points using the Lagrange Interpolation. The procedure is as follows:

@@ -208,7 +208,12 @@ impl<E: FieldArithmetic> Poly<E> {
                     // factor is (x - alpha_j)/(alpha_i - alpha_j)
                     factor.coeffs[0] = *alpha_j;
                     factor.coeffs[1] = E::one();
-                    factor = factor.mul_coeff(&alpha_i.modsub(alpha_j).modinv().unwrap());
+                    factor = factor.mul_coeff(
+                        &alpha_i
+                            .modsub(alpha_j)
+                            .modinv()
+                            .expect("alpha_i - alpha_j should be non_zero!"),
+                    );
                     basis = basis.mul(&factor);
                 }
             }
