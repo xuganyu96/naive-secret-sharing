@@ -7,6 +7,7 @@ use aes_gcm::{
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
 use rand::{rngs::OsRng, CryptoRng, Rng};
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 
 pub type SecretSharingResult<T> = Result<T, SecretSharingError>;
@@ -24,6 +25,10 @@ pub enum SecretSharingError {
     AesGcmError(aes_gcm::Error),
     /// some input base64 encoding is invalid
     Base64DecodingError,
+    /// Something went wrong when serializaing to TOML
+    TOMLSerializationError,
+    /// something went wrong when deserializing from TOML
+    TOMLDeserializationError,
 }
 
 impl core::fmt::Display for SecretSharingError {
@@ -49,7 +54,7 @@ pub struct SecretSharing256 {
 }
 
 /// Convenient struct for serde
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SecretShare {
     threshold: usize,
     nonce: String,
@@ -59,11 +64,11 @@ pub struct SecretShare {
 }
 
 impl SecretShare {
-    pub fn to_string(&self) -> String {
-        todo!()
+    pub fn to_string(&self) -> Result<String, SecretSharingError> {
+        toml::to_string_pretty(&self).map_err(|_e| SecretSharingError::TOMLSerializationError)
     }
-    pub fn from_string(_s: &str) -> Result<Self, SecretSharingError> {
-        todo!()
+    pub fn from_string(from_str: &str) -> Result<Self, SecretSharingError> {
+        toml::from_str(from_str).map_err(|_e| SecretSharingError::TOMLDeserializationError)
     }
 }
 
@@ -319,6 +324,14 @@ mod tests {
         secret_sharing.safe_split(redundancy);
         secret_sharing.encrypt(secret_msg)?;
         let shares = secret_sharing.stringify_shards()?;
+        let shares_strs: Vec<String> = shares
+            .iter()
+            .map(|share| share.to_string())
+            .collect::<Result<Vec<String>, _>>()?;
+        let shares = shares_strs
+            .iter()
+            .map(|share_str| SecretShare::from_string(&share_str))
+            .collect::<Result<Vec<SecretShare>, _>>()?;
         let decryption = SecretSharing256::decrypt_from_secret_shares(&shares)?;
         assert_eq!(decryption, secret_msg);
 
